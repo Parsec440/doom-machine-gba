@@ -1,0 +1,357 @@
+--- a/source/template.c	2026-11-24 21:58:05.704852597 +0100
++++ b/source/template.c	2026-11-24 21:58:05.713855304 +0100
+@@ -50,11 +50,14 @@
+ 	int val;
+ } Casella;
+ 
+-typedef enum { AZ_NULLA, AZ_DANNO_SP, AZ_CARICA_SP } TipoAzione;
++typedef enum { AZ_NULLA, AZ_DANNO_SP, AZ_CARICA_SP, AZ_DANNO_SX } TipoAzione;
+ typedef struct {
+ 	TipoAzione tipo;
+ } Azione;
+ 
++/* effetto scatenato quando la carta viene sconfitta */
++typedef enum { OM_NESSUNA, OM_DANNO_SX, OM_DANNO_TUTTI } OnMorte;
++
+ typedef struct {
+ 	const char *nome;
+ 	int pv;
+@@ -62,19 +65,27 @@
+ 	Casella cas[MAX_CAS];
+ 	int n_az;
+ 	Azione az[MAX_AZ];
++	OnMorte on_morte;
++	int om_val;
+ } Carta;
+ 
+ static const Carta POOL[] = {
+-	{"Oleg", 3, 2, {{'=', 6}, {'=', 6}}, 2,
++	{"Scrap Sentinel", 3, 2, {{'=', 6}, {'=', 6}}, 2,
+ 	 {{AZ_NULLA}, {AZ_DANNO_SP}}},
+-	{"Yuki", 3, 2, {{'=', 2}, {'=', 3}}, 3,
++	{"Frost Relay", 3, 2, {{'=', 2}, {'=', 3}}, 3,
+ 	 {{AZ_NULLA}, {AZ_CARICA_SP}, {AZ_DANNO_SP}}},
+-	{"Lala", 4, 2, {{'=', 3}, {'>', 3}}, 3,
++	{"Gilt Capacitor", 4, 2, {{'=', 3}, {'>', 3}}, 3,
+ 	 {{AZ_NULLA}, {AZ_CARICA_SP}, {AZ_CARICA_SP}}},
+-	{"Gocciola", 2, 1, {{'>', 4}}, 4,
++	{"Coolant Drip", 2, 1, {{'>', 4}}, 4,
+ 	 {{AZ_NULLA}, {AZ_CARICA_SP}, {AZ_DANNO_SP}, {AZ_CARICA_SP}}},
++	{"Misery Extractor", 6, 2, {{'=', 2}, {'=', 3}}, 4,
++	 {{AZ_NULLA}, {AZ_DANNO_SX}, {AZ_DANNO_SX}, {AZ_DANNO_SX}},
++	 OM_DANNO_SX, 2},
++	{"Infernal Power Complex", 3, 3, {{'=', 1}, {'=', 1}, {'=', 1}}, 4,
++	 {{AZ_NULLA}, {AZ_CARICA_SP}, {AZ_NULLA}, {AZ_CARICA_SP}},
++	 OM_DANNO_TUTTI, 1},
+ };
+-#define N_POOL 4
++#define N_POOL 6
+ static const Carta NUCLEO = {"Doom Core", 4, 3, {{'=', 6}, {'=', 6}, {'=', 6}}, 4,
+                               {{AZ_NULLA}, {AZ_DANNO_SP}, {AZ_CARICA_SP}, {AZ_CARICA_SP}}};
+ #define N_MAZZO (N_POOL + 1)
+@@ -98,6 +109,7 @@
+ 	case AZ_NULLA: return "Nulla";
+ 	case AZ_DANNO_SP: return "Danno = Pot+Sen";
+ 	case AZ_CARICA_SP: return "Carica Pot+1 Sen+1";
++	case AZ_DANNO_SX: return "Danno = PV carta a sx";
+ 	}
+ 	return "";
+ }
+@@ -276,8 +288,21 @@
+ 	tirato = 1;
+ }
+ 
++/* rimuove la carta in posizione i, applicando prima il suo effetto alla
++   morte (se presente) e gestendo le eventuali morti a catena che ne
++   derivano */
+ static void sconfitta(int i) {
++	const Carta *c = prendi(campo[i]);
+ 	if (campo[i] == -1) vinto = 1;
++
++	if (c->on_morte == OM_DANNO_SX) {
++		if (i > 0) pv_campo[i - 1] -= c->om_val;
++	} else if (c->on_morte == OM_DANNO_TUTTI) {
++		for (int j = 0; j < n_campo; j++) {
++			if (j != i) pv_campo[j] -= c->om_val;
++		}
++	}
++
+ 	for (int j = i; j < n_campo - 1; j++) {
+ 		campo[j] = campo[j + 1];
+ 		pv_campo[j] = pv_campo[j + 1];
+@@ -286,6 +311,13 @@
+ 	n_campo--;
+ 	if (n_dadi < MAX_DADI) n_dadi++;
+ 	if (cursore >= n_campo) cursore = n_campo > 0 ? n_campo - 1 : 0;
++
++	for (int j = 0; j < n_campo; j++) {
++		if (pv_campo[j] <= 0) {
++			sconfitta(j);
++			j = -1;
++		}
++	}
+ }
+ 
+ static void annulla_attacco(void) {
+@@ -396,6 +428,7 @@
+ 		case AZ_NULLA: break;
+ 		case AZ_DANNO_SP: danno += potere + sentenza; break;
+ 		case AZ_CARICA_SP: potere++; sentenza++; break;
++		case AZ_DANNO_SX: if (i > 0) danno += pv_campo[i - 1]; break;
+ 		}
+ 	}
+ 	int dif = difesa_somma();
+@@ -441,9 +474,23 @@
+ 	if (pausa || conferma) return;
+ 
+ 	if (vista == 1) {
+-		for (int i = 0; i < n_campo && i < SLOT_SPRITE; i++) {
+-			int y = (i == cursore) ? CARTA_Y - 3 : CARTA_Y;
+-			sprite_set(i, CARTA_X(i), y, tile_carta(campo[i]));
++		if (vedi_ciclo) {
++			/* nella vista "ciclo" mostra solo lo sprite della carta in esame,
++			   spostato di lato rispetto al pannello */
++			const Carta *c = prendi(campo[cursore]);
++			int n = c->n_az;
++			int h = 24 + n * 10;
++			int py = (160 - h) / 2;
++			if (py < 8) py = 8;
++			int sy = py + h / 2 - 16;
++			if (sy < 2) sy = 2;
++			if (sy > 128) sy = 128;
++			sprite_set(0, 198, sy, tile_carta(campo[cursore]));
++		} else {
++			for (int i = 0; i < n_campo && i < SLOT_SPRITE; i++) {
++				int y = (i == cursore) ? CARTA_Y - 3 : CARTA_Y;
++				sprite_set(i, CARTA_X(i), y, tile_carta(campo[i]));
++			}
+ 		}
+ 	} else {
+ 		if (attacco) sprite_set(0, 28, 40, tile_carta(campo[bersaglio]));
+@@ -627,13 +674,14 @@
+ 	}
+ }
+ 
+-/* mostra l'intero ciclo della carta, passo per passo, con descrizione */
++/* mostra l'intero ciclo della carta, passo per passo, con descrizione;
++   il pannello e' piu' stretto per lasciare spazio allo sprite a lato */
+ static void disegna_vedi_ciclo(void) {
+ 	const Carta *c = prendi(campo[cursore]);
+ 	int n = c->n_az;
+ 	int h = 24 + n * 10;
+-	int w = 210;
+-	int x = 15;
++	int w = 176;
++	int x = 4;
+ 	int y = (160 - h) / 2;
+ 	if (y < 8) y = 8;
+ 	int pos = eta_campo[cursore] % n;
+@@ -744,7 +792,7 @@
+ 
+ 	if (!iniziata) {
+ 		ui_pannello(20, 44, 200, 54);
+-		ui_testo_c(120, 54, "Catch the Ratos", K_GIALLO, 2);
++		ui_testo_c(120, 54, "Doom Machine", K_GIALLO, 2);
+ 		ui_testo_c(120, 80, "Premi START per iniziare", K_TESTO, 1);
+ 		for (int i = 0; i < 4; i++) {
+ 			ui_testo_c(38 + 44 * i + 16, 144, POOL[i].nome, K_TESTO, 1);
+--- a/source/grafica.h	2026-11-24 21:58:05.706281996 +0100
++++ b/source/grafica.h	2026-11-24 21:58:05.715455460 +0100
+@@ -1,7 +1,7 @@
+ #ifndef GRAFICA_H
+ #define GRAFICA_H
+ 
+-#define N_ARTI 6
++#define N_ARTI 7
+ #define COL5(r, g, b) ((r) | ((g) << 5) | ((b) << 10))
+ 
+ /* palette delle carte (banco 0) */
+@@ -11,17 +11,17 @@
+ 	COL5(6, 22, 24),  /* 2 cornice turchese */
+ 	COL5(31, 31, 31), /* 3 bianco */
+ 	COL5(5, 3, 4),    /* 4 contorno */
+-	COL5(17, 14, 12), /* 5 Oleg: bruno-grigio */
++	COL5(17, 14, 12), /* 5 grigio acciaio */
+ 	COL5(8, 6, 6),    /* 6 striscia scura */
+-	COL5(31, 19, 22), /* 7 rosa */
+-	COL5(31, 22, 8),  /* 8 Lala: dorato */
++	COL5(30, 10, 14), /* 7 rosso segnale */
++	COL5(31, 22, 8),  /* 8 oro */
+ 	COL5(31, 28, 22), /* 9 crema */
+-	COL5(21, 23, 27), /* 10 Gocciola: perla */
+-	COL5(28, 6, 10),  /* 11 occhio rosso / reattore interno */
+-	COL5(27, 15, 4),  /* 12 arancio scuro / anello reattore */
++	COL5(14, 22, 31), /* 10 azzurro ghiaccio */
++	COL5(28, 6, 10),  /* 11 rosso reattore */
++	COL5(27, 15, 4),  /* 12 arancio reattore */
+ 	COL5(27, 27, 28), /* 13 grigio chiaro */
+-	COL5(11, 13, 18), /* 14 striscia blu-grigia */
+-	COL5(26, 10, 14), /* 15 naso */
++	COL5(6, 18, 20),  /* 14 blu petrolio */
++	COL5(18, 4, 24),  /* 15 viola cupo */
+ };
+ 
+ /* ---------- piccola tela 32x32 per disegnare le carte ---------- */
+@@ -49,18 +49,6 @@
+ 	}
+ }
+ 
+-typedef struct {
+-	int corpo, pancia, orecchio, occhio, stria, guance, naso;
+-	int or_rx, or_ry, or_cy;
+-} Aspetto;
+-
+-static const Aspetto ASPETTI[4] = {
+-	/* Oleg */     {5, 9, 7, 4, 6, 7, 15, 9, 9, 16},
+-	/* Yuki */     {3, 13, 7, 11, 0, 7, 7, 10, 13, 14},
+-	/* Lala */     {8, 9, 7, 4, 0, 12, 15, 9, 9, 16},
+-	/* Gocciola */ {10, 3, 7, 4, 14, 7, 15, 9, 9, 16},
+-};
+-
+ static void cornice_tela(void) {
+ 	for (int i = 0; i < 32; i++) {
+ 		cv[0][i] = 2;
+@@ -70,38 +58,82 @@
+ 	}
+ }
+ 
+-static void disegna_roditore(const Aspetto *a) {
+-	for (int y = 0; y < 32; y++) {
+-		for (int x = 0; x < 32; x++) cv[y][x] = 1;
+-	}
++/* Scrap Sentinel: torretta corazzata con antenna e occhio rosso */
++static void disegna_sentinella(void) {
++	for (int y = 0; y < 32; y++) for (int x = 0; x < 32; x++) cv[y][x] = 1;
++	cv_rett(14, 4, 4, 10, 4);
++	cv_px(16, 4, 7);
++	cv_ell(32, 40, 24, 22, 4);
++	cv_ell(32, 40, 20, 18, 5);
++	cv_rett(8, 34, 16, 8, 6);
++	cv_ell(32, 44, 10, 10, 4);
++	cv_ell(32, 44, 6, 6, 7);
++	cv_rett(10, 52, 6, 6, 13);
++	cv_rett(48, 52, 6, 6, 13);
++	cornice_tela();
++}
+ 
+-	cv_ell(17, a->or_cy, a->or_rx + 2, a->or_ry + 2, 4);
+-	cv_ell(47, a->or_cy, a->or_rx + 2, a->or_ry + 2, 4);
+-	cv_ell(17, a->or_cy, a->or_rx, a->or_ry, a->corpo);
+-	cv_ell(47, a->or_cy, a->or_rx, a->or_ry, a->corpo);
+-	cv_ell(17, a->or_cy + 1, a->or_rx - 4, a->or_ry - 4, a->orecchio);
+-	cv_ell(47, a->or_cy + 1, a->or_rx - 4, a->or_ry - 4, a->orecchio);
+-
+-	cv_ell(32, 38, 26, 22, 4);
+-	cv_ell(32, 38, 24, 20, a->corpo);
+-	cv_ell(32, 46, 14, 10, a->pancia);
+-	cv_ell(15, 44, 5, 4, a->guance);
+-	cv_ell(49, 44, 5, 4, a->guance);
+-
+-	if (a->stria) cv_rett(15, 10, 2, 6, a->stria);
+-
+-	cv_ell(22, 36, 4, 5, a->occhio);
+-	cv_ell(42, 36, 4, 5, a->occhio);
+-	cv_px(10, 16, 3);
+-	cv_px(20, 16, 3);
+-
+-	cv_px(15, 20, a->naso);
+-	cv_px(16, 20, a->naso);
+-	cv_px(14, 22, 4);
+-	cv_px(15, 23, 4);
+-	cv_px(16, 23, 4);
+-	cv_px(17, 22, 4);
++/* Frost Relay: pannello col cristallo di ghiaccio */
++static void disegna_relay(void) {
++	for (int y = 0; y < 32; y++) for (int x = 0; x < 32; x++) cv[y][x] = 1;
++	cv_ell(32, 32, 26, 26, 4);
++	cv_ell(32, 32, 22, 22, 2);
++	cv_ell(32, 32, 16, 16, 5);
++	cv_rett(14, 8, 4, 18, 10);
++	cv_rett(16, 4, 4, 10, 3);
++	cv_rett(29, 18, 4, 20, 10);
++	cv_px(16, 8, 3);
++	cornice_tela();
++}
+ 
++/* Gilt Capacitor: cilindro dorato a fasce */
++static void disegna_capacitore(void) {
++	for (int y = 0; y < 32; y++) for (int x = 0; x < 32; x++) cv[y][x] = 1;
++	cv_rett(9, 6, 14, 24, 4);
++	cv_rett(10, 7, 12, 22, 8);
++	cv_rett(10, 11, 12, 3, 6);
++	cv_rett(10, 17, 12, 3, 6);
++	cv_rett(10, 23, 12, 3, 6);
++	cv_ell(32, 14, 12, 8, 9);
++	cornice_tela();
++}
++
++/* Coolant Drip: goccia di refrigerante azzurra */
++static void disegna_goccia(void) {
++	for (int y = 0; y < 32; y++) for (int x = 0; x < 32; x++) cv[y][x] = 1;
++	cv_ell(32, 44, 20, 18, 4);
++	cv_ell(32, 44, 16, 14, 14);
++	cv_ell(26, 36, 5, 5, 3);
++	cv_rett(14, 6, 4, 20, 5);
++	cv_rett(15, 7, 2, 18, 13);
++	cornice_tela();
++}
++
++/* Misery Extractor: trivella/artiglio viola con nucleo rosso */
++static void disegna_estrattore(void) {
++	for (int y = 0; y < 32; y++) for (int x = 0; x < 32; x++) cv[y][x] = 1;
++	cv_ell(32, 30, 24, 20, 4);
++	cv_ell(32, 30, 20, 16, 15);
++	cv_rett(8, 46, 4, 12, 4);
++	cv_rett(52, 46, 4, 12, 4);
++	cv_rett(9, 47, 2, 10, 15);
++	cv_rett(53, 47, 2, 10, 15);
++	cv_ell(32, 30, 8, 8, 4);
++	cv_ell(32, 30, 5, 5, 11);
++	cornice_tela();
++}
++
++/* Infernal Power Complex: reattore incandescente con picchi di energia */
++static void disegna_complesso(void) {
++	for (int y = 0; y < 32; y++) for (int x = 0; x < 32; x++) cv[y][x] = 1;
++	cv_ell(32, 32, 26, 26, 4);
++	cv_ell(32, 32, 20, 20, 7);
++	cv_ell(32, 32, 14, 14, 12);
++	cv_ell(32, 32, 7, 7, 3);
++	cv_rett(15, 2, 2, 8, 7);
++	cv_rett(47, 2, 2, 8, 7);
++	cv_rett(15, 52, 2, 8, 7);
++	cv_rett(47, 52, 2, 8, 7);
+ 	cornice_tela();
+ }
+ 
+@@ -126,8 +158,15 @@
+ 	for (int i = 0; i < 16; i++) pal[i] = PALETTE_CARTE[i];
+ 
+ 	for (int c = 0; c < N_ARTI; c++) {
+-		if (c < 4) disegna_roditore(&ASPETTI[c]);
+-		else disegna_core(); /* indici 4 e 5: entrambi il reattore, per ora */
++		switch (c) {
++		case 0: disegna_sentinella(); break;
++		case 1: disegna_relay(); break;
++		case 2: disegna_capacitore(); break;
++		case 3: disegna_goccia(); break;
++		case 4: disegna_estrattore(); break;
++		case 5: disegna_complesso(); break;
++		default: disegna_core(); break;
++		}
+ 
+ 		for (int ty = 0; ty < 4; ty++) {
+ 			for (int tx = 0; tx < 4; tx++) {
+--- a/source/audio.h	2026-11-24 21:58:05.707664367 +0100
++++ b/source/audio.h	2026-11-24 21:58:05.716901040 +0100
+@@ -73,8 +73,8 @@
+ static const Nota S_SELECT[] = { NT(196, 5), NT(294, 8) };
+ static const Nota S_FINE_TURNO[] = { NT(330, 5), NT(247, 5), NT(196, 12) };
+ static const Nota S_ERRORE[] = { NT(130, 7), NT(110, 11) };
+-static const Nota S_DADI[] = { NR(0x62, 4), NR(0x61, 4), NR(0x62, 4),
+-                               NR(0x71, 4), NR(0x70, 8) };
++static const Nota S_DADI[] = { NR(0x92, 5), NR(0x91, 5), NR(0x82, 5),
++                               NR(0x81, 5), NR(0x90, 12) };
+ static const Nota S_DADO[] = { NR(0x71, 4), NR(0x70, 8) };
+ static const Nota S_RITOCCO[] = { NT(294, 4), NT(370, 7) };
+ static const Nota S_DIFESA[] = { NT(165, 4), NT(196, 4), NT(220, 8) };

@@ -73,8 +73,8 @@ static const Nota S_RIPRENDI[] = { NT(247, 5), NT(196, 5), NT(165, 11) };
 static const Nota S_SELECT[] = { NT(196, 5), NT(294, 8) };
 static const Nota S_FINE_TURNO[] = { NT(330, 5), NT(247, 5), NT(196, 12) };
 static const Nota S_ERRORE[] = { NT(130, 7), NT(110, 11) };
-static const Nota S_DADI[] = { NR(0x62, 4), NR(0x61, 4), NR(0x62, 4),
-                               NR(0x71, 4), NR(0x70, 8) };
+static const Nota S_DADI[] = { NR(0x92, 5), NR(0x91, 5), NR(0x82, 5),
+                               NR(0x81, 5), NR(0x90, 12) };
 static const Nota S_DADO[] = { NR(0x71, 4), NR(0x70, 8) };
 static const Nota S_RITOCCO[] = { NT(294, 4), NT(370, 7) };
 static const Nota S_DIFESA[] = { NT(165, 4), NT(196, 4), NT(220, 8) };

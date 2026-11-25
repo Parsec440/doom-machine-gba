@@ -50,10 +50,13 @@ typedef struct {
 	int val;
 } Casella;
 
-typedef enum { AZ_NULLA, AZ_DANNO_SP, AZ_CARICA_SP } TipoAzione;
+typedef enum { AZ_NULLA, AZ_DANNO_SP, AZ_CARICA_SP, AZ_DANNO_SX } TipoAzione;
 typedef struct {
 	TipoAzione tipo;
 } Azione;
+
+/* effetto scatenato quando la carta viene sconfitta */
+typedef enum { OM_NESSUNA, OM_DANNO_SX, OM_DANNO_TUTTI } OnMorte;
 
 typedef struct {
 	const char *nome;
@@ -62,19 +65,27 @@ typedef struct {
 	Casella cas[MAX_CAS];
 	int n_az;
 	Azione az[MAX_AZ];
+	OnMorte on_morte;
+	int om_val;
 } Carta;
 
 static const Carta POOL[] = {
-	{"Oleg", 3, 2, {{'=', 6}, {'=', 6}}, 2,
+	{"Scrap Sentinel", 3, 2, {{'=', 6}, {'=', 6}}, 2,
 	 {{AZ_NULLA}, {AZ_DANNO_SP}}},
-	{"Yuki", 3, 2, {{'=', 2}, {'=', 3}}, 3,
+	{"Frost Relay", 3, 2, {{'=', 2}, {'=', 3}}, 3,
 	 {{AZ_NULLA}, {AZ_CARICA_SP}, {AZ_DANNO_SP}}},
-	{"Lala", 4, 2, {{'=', 3}, {'>', 3}}, 3,
+	{"Gilt Capacitor", 4, 2, {{'=', 3}, {'>', 3}}, 3,
 	 {{AZ_NULLA}, {AZ_CARICA_SP}, {AZ_CARICA_SP}}},
-	{"Gocciola", 2, 1, {{'>', 4}}, 4,
+	{"Coolant Drip", 2, 1, {{'>', 4}}, 4,
 	 {{AZ_NULLA}, {AZ_CARICA_SP}, {AZ_DANNO_SP}, {AZ_CARICA_SP}}},
+	{"Misery Extractor", 6, 2, {{'=', 2}, {'=', 3}}, 4,
+	 {{AZ_NULLA}, {AZ_DANNO_SX}, {AZ_DANNO_SX}, {AZ_DANNO_SX}},
+	 OM_DANNO_SX, 2},
+	{"Infernal Power Complex", 3, 3, {{'=', 1}, {'=', 1}, {'=', 1}}, 4,
+	 {{AZ_NULLA}, {AZ_CARICA_SP}, {AZ_NULLA}, {AZ_CARICA_SP}},
+	 OM_DANNO_TUTTI, 1},
 };
-#define N_POOL 4
+#define N_POOL 6
 static const Carta NUCLEO = {"Doom Core", 4, 3, {{'=', 6}, {'=', 6}, {'=', 6}}, 4,
                               {{AZ_NULLA}, {AZ_DANNO_SP}, {AZ_CARICA_SP}, {AZ_CARICA_SP}}};
 #define N_MAZZO (N_POOL + 1)
@@ -98,6 +109,7 @@ static const char *azione_desc(Azione a) {
 	case AZ_NULLA: return "Nulla";
 	case AZ_DANNO_SP: return "Danno = Pot+Sen";
 	case AZ_CARICA_SP: return "Carica Pot+1 Sen+1";
+	case AZ_DANNO_SX: return "Danno = PV carta a sx";
 	}
 	return "";
 }
@@ -276,8 +288,21 @@ static void tira(void) {
 	tirato = 1;
 }
 
+/* rimuove la carta in posizione i, applicando prima il suo effetto alla
+   morte (se presente) e gestendo le eventuali morti a catena che ne
+   derivano */
 static void sconfitta(int i) {
+	const Carta *c = prendi(campo[i]);
 	if (campo[i] == -1) vinto = 1;
+
+	if (c->on_morte == OM_DANNO_SX) {
+		if (i > 0) pv_campo[i - 1] -= c->om_val;
+	} else if (c->on_morte == OM_DANNO_TUTTI) {
+		for (int j = 0; j < n_campo; j++) {
+			if (j != i) pv_campo[j] -= c->om_val;
+		}
+	}
+
 	for (int j = i; j < n_campo - 1; j++) {
 		campo[j] = campo[j + 1];
 		pv_campo[j] = pv_campo[j + 1];
@@ -286,6 +311,13 @@ static void sconfitta(int i) {
 	n_campo--;
 	if (n_dadi < MAX_DADI) n_dadi++;
 	if (cursore >= n_campo) cursore = n_campo > 0 ? n_campo - 1 : 0;
+
+	for (int j = 0; j < n_campo; j++) {
+		if (pv_campo[j] <= 0) {
+			sconfitta(j);
+			j = -1;
+		}
+	}
 }
 
 static void annulla_attacco(void) {
@@ -396,6 +428,7 @@ static void turno_nemici(void) {
 		case AZ_NULLA: break;
 		case AZ_DANNO_SP: danno += potere + sentenza; break;
 		case AZ_CARICA_SP: potere++; sentenza++; break;
+		case AZ_DANNO_SX: if (i > 0) danno += pv_campo[i - 1]; break;
 		}
 	}
 	int dif = difesa_somma();
@@ -441,9 +474,23 @@ static void aggiorna_sprite(void) {
 	if (pausa || conferma) return;
 
 	if (vista == 1) {
-		for (int i = 0; i < n_campo && i < SLOT_SPRITE; i++) {
-			int y = (i == cursore) ? CARTA_Y - 3 : CARTA_Y;
-			sprite_set(i, CARTA_X(i), y, tile_carta(campo[i]));
+		if (vedi_ciclo) {
+			/* nella vista "ciclo" mostra solo lo sprite della carta in esame,
+			   spostato di lato rispetto al pannello */
+			const Carta *c = prendi(campo[cursore]);
+			int n = c->n_az;
+			int h = 24 + n * 10;
+			int py = (160 - h) / 2;
+			if (py < 8) py = 8;
+			int sy = py + h / 2 - 16;
+			if (sy < 2) sy = 2;
+			if (sy > 128) sy = 128;
+			sprite_set(0, 198, sy, tile_carta(campo[cursore]));
+		} else {
+			for (int i = 0; i < n_campo && i < SLOT_SPRITE; i++) {
+				int y = (i == cursore) ? CARTA_Y - 3 : CARTA_Y;
+				sprite_set(i, CARTA_X(i), y, tile_carta(campo[i]));
+			}
 		}
 	} else {
 		if (attacco) sprite_set(0, 28, 40, tile_carta(campo[bersaglio]));
@@ -627,13 +674,14 @@ static void disegna_menu_carta(void) {
 	}
 }
 
-/* mostra l'intero ciclo della carta, passo per passo, con descrizione */
+/* mostra l'intero ciclo della carta, passo per passo, con descrizione;
+   il pannello e' piu' stretto per lasciare spazio allo sprite a lato */
 static void disegna_vedi_ciclo(void) {
 	const Carta *c = prendi(campo[cursore]);
 	int n = c->n_az;
 	int h = 24 + n * 10;
-	int w = 210;
-	int x = 15;
+	int w = 176;
+	int x = 4;
 	int y = (160 - h) / 2;
 	if (y < 8) y = 8;
 	int pos = eta_campo[cursore] % n;
@@ -744,7 +792,7 @@ static void disegna(void) {
 
 	if (!iniziata) {
 		ui_pannello(20, 44, 200, 54);
-		ui_testo_c(120, 54, "Catch the Ratos", K_GIALLO, 2);
+		ui_testo_c(120, 54, "Doom Machine", K_GIALLO, 2);
 		ui_testo_c(120, 80, "Premi START per iniziare", K_TESTO, 1);
 		for (int i = 0; i < 4; i++) {
 			ui_testo_c(38 + 44 * i + 16, 144, POOL[i].nome, K_TESTO, 1);

@@ -1,7 +1,7 @@
 #ifndef GRAFICA_H
 #define GRAFICA_H
 
-#define N_ARTI 6
+#define N_ARTI 7
 #define COL5(r, g, b) ((r) | ((g) << 5) | ((b) << 10))
 
 /* palette delle carte (banco 0) */
@@ -11,17 +11,17 @@ static const unsigned short PALETTE_CARTE[16] = {
 	COL5(6, 22, 24),  /* 2 cornice turchese */
 	COL5(31, 31, 31), /* 3 bianco */
 	COL5(5, 3, 4),    /* 4 contorno */
-	COL5(17, 14, 12), /* 5 Oleg: bruno-grigio */
+	COL5(17, 14, 12), /* 5 grigio acciaio */
 	COL5(8, 6, 6),    /* 6 striscia scura */
-	COL5(31, 19, 22), /* 7 rosa */
-	COL5(31, 22, 8),  /* 8 Lala: dorato */
+	COL5(30, 10, 14), /* 7 rosso segnale */
+	COL5(31, 22, 8),  /* 8 oro */
 	COL5(31, 28, 22), /* 9 crema */
-	COL5(21, 23, 27), /* 10 Gocciola: perla */
-	COL5(28, 6, 10),  /* 11 occhio rosso / reattore interno */
-	COL5(27, 15, 4),  /* 12 arancio scuro / anello reattore */
+	COL5(14, 22, 31), /* 10 azzurro ghiaccio */
+	COL5(28, 6, 10),  /* 11 rosso reattore */
+	COL5(27, 15, 4),  /* 12 arancio reattore */
 	COL5(27, 27, 28), /* 13 grigio chiaro */
-	COL5(11, 13, 18), /* 14 striscia blu-grigia */
-	COL5(26, 10, 14), /* 15 naso */
+	COL5(6, 18, 20),  /* 14 blu petrolio */
+	COL5(18, 4, 24),  /* 15 viola cupo */
 };
 
 /* ---------- piccola tela 32x32 per disegnare le carte ---------- */
@@ -49,18 +49,6 @@ static void cv_ell(int cx2, int cy2, int rx2, int ry2, int c) {
 	}
 }
 
-typedef struct {
-	int corpo, pancia, orecchio, occhio, stria, guance, naso;
-	int or_rx, or_ry, or_cy;
-} Aspetto;
-
-static const Aspetto ASPETTI[4] = {
-	/* Oleg */     {5, 9, 7, 4, 6, 7, 15, 9, 9, 16},
-	/* Yuki */     {3, 13, 7, 11, 0, 7, 7, 10, 13, 14},
-	/* Lala */     {8, 9, 7, 4, 0, 12, 15, 9, 9, 16},
-	/* Gocciola */ {10, 3, 7, 4, 14, 7, 15, 9, 9, 16},
-};
-
 static void cornice_tela(void) {
 	for (int i = 0; i < 32; i++) {
 		cv[0][i] = 2;
@@ -70,38 +58,82 @@ static void cornice_tela(void) {
 	}
 }
 
-static void disegna_roditore(const Aspetto *a) {
-	for (int y = 0; y < 32; y++) {
-		for (int x = 0; x < 32; x++) cv[y][x] = 1;
-	}
+/* Scrap Sentinel: torretta corazzata con antenna e occhio rosso */
+static void disegna_sentinella(void) {
+	for (int y = 0; y < 32; y++) for (int x = 0; x < 32; x++) cv[y][x] = 1;
+	cv_rett(14, 4, 4, 10, 4);
+	cv_px(16, 4, 7);
+	cv_ell(32, 40, 24, 22, 4);
+	cv_ell(32, 40, 20, 18, 5);
+	cv_rett(8, 34, 16, 8, 6);
+	cv_ell(32, 44, 10, 10, 4);
+	cv_ell(32, 44, 6, 6, 7);
+	cv_rett(10, 52, 6, 6, 13);
+	cv_rett(48, 52, 6, 6, 13);
+	cornice_tela();
+}
 
-	cv_ell(17, a->or_cy, a->or_rx + 2, a->or_ry + 2, 4);
-	cv_ell(47, a->or_cy, a->or_rx + 2, a->or_ry + 2, 4);
-	cv_ell(17, a->or_cy, a->or_rx, a->or_ry, a->corpo);
-	cv_ell(47, a->or_cy, a->or_rx, a->or_ry, a->corpo);
-	cv_ell(17, a->or_cy + 1, a->or_rx - 4, a->or_ry - 4, a->orecchio);
-	cv_ell(47, a->or_cy + 1, a->or_rx - 4, a->or_ry - 4, a->orecchio);
+/* Frost Relay: pannello col cristallo di ghiaccio */
+static void disegna_relay(void) {
+	for (int y = 0; y < 32; y++) for (int x = 0; x < 32; x++) cv[y][x] = 1;
+	cv_ell(32, 32, 26, 26, 4);
+	cv_ell(32, 32, 22, 22, 2);
+	cv_ell(32, 32, 16, 16, 5);
+	cv_rett(14, 8, 4, 18, 10);
+	cv_rett(16, 4, 4, 10, 3);
+	cv_rett(29, 18, 4, 20, 10);
+	cv_px(16, 8, 3);
+	cornice_tela();
+}
 
-	cv_ell(32, 38, 26, 22, 4);
-	cv_ell(32, 38, 24, 20, a->corpo);
-	cv_ell(32, 46, 14, 10, a->pancia);
-	cv_ell(15, 44, 5, 4, a->guance);
-	cv_ell(49, 44, 5, 4, a->guance);
+/* Gilt Capacitor: cilindro dorato a fasce */
+static void disegna_capacitore(void) {
+	for (int y = 0; y < 32; y++) for (int x = 0; x < 32; x++) cv[y][x] = 1;
+	cv_rett(9, 6, 14, 24, 4);
+	cv_rett(10, 7, 12, 22, 8);
+	cv_rett(10, 11, 12, 3, 6);
+	cv_rett(10, 17, 12, 3, 6);
+	cv_rett(10, 23, 12, 3, 6);
+	cv_ell(32, 14, 12, 8, 9);
+	cornice_tela();
+}
 
-	if (a->stria) cv_rett(15, 10, 2, 6, a->stria);
+/* Coolant Drip: goccia di refrigerante azzurra */
+static void disegna_goccia(void) {
+	for (int y = 0; y < 32; y++) for (int x = 0; x < 32; x++) cv[y][x] = 1;
+	cv_ell(32, 44, 20, 18, 4);
+	cv_ell(32, 44, 16, 14, 14);
+	cv_ell(26, 36, 5, 5, 3);
+	cv_rett(14, 6, 4, 20, 5);
+	cv_rett(15, 7, 2, 18, 13);
+	cornice_tela();
+}
 
-	cv_ell(22, 36, 4, 5, a->occhio);
-	cv_ell(42, 36, 4, 5, a->occhio);
-	cv_px(10, 16, 3);
-	cv_px(20, 16, 3);
+/* Misery Extractor: trivella/artiglio viola con nucleo rosso */
+static void disegna_estrattore(void) {
+	for (int y = 0; y < 32; y++) for (int x = 0; x < 32; x++) cv[y][x] = 1;
+	cv_ell(32, 30, 24, 20, 4);
+	cv_ell(32, 30, 20, 16, 15);
+	cv_rett(8, 46, 4, 12, 4);
+	cv_rett(52, 46, 4, 12, 4);
+	cv_rett(9, 47, 2, 10, 15);
+	cv_rett(53, 47, 2, 10, 15);
+	cv_ell(32, 30, 8, 8, 4);
+	cv_ell(32, 30, 5, 5, 11);
+	cornice_tela();
+}
 
-	cv_px(15, 20, a->naso);
-	cv_px(16, 20, a->naso);
-	cv_px(14, 22, 4);
-	cv_px(15, 23, 4);
-	cv_px(16, 23, 4);
-	cv_px(17, 22, 4);
-
+/* Infernal Power Complex: reattore incandescente con picchi di energia */
+static void disegna_complesso(void) {
+	for (int y = 0; y < 32; y++) for (int x = 0; x < 32; x++) cv[y][x] = 1;
+	cv_ell(32, 32, 26, 26, 4);
+	cv_ell(32, 32, 20, 20, 7);
+	cv_ell(32, 32, 14, 14, 12);
+	cv_ell(32, 32, 7, 7, 3);
+	cv_rett(15, 2, 2, 8, 7);
+	cv_rett(47, 2, 2, 8, 7);
+	cv_rett(15, 52, 2, 8, 7);
+	cv_rett(47, 52, 2, 8, 7);
 	cornice_tela();
 }
 
@@ -126,8 +158,15 @@ static void carica_grafica(void) {
 	for (int i = 0; i < 16; i++) pal[i] = PALETTE_CARTE[i];
 
 	for (int c = 0; c < N_ARTI; c++) {
-		if (c < 4) disegna_roditore(&ASPETTI[c]);
-		else disegna_core(); /* indici 4 e 5: entrambi il reattore, per ora */
+		switch (c) {
+		case 0: disegna_sentinella(); break;
+		case 1: disegna_relay(); break;
+		case 2: disegna_capacitore(); break;
+		case 3: disegna_goccia(); break;
+		case 4: disegna_estrattore(); break;
+		case 5: disegna_complesso(); break;
+		default: disegna_core(); break;
+		}
 
 		for (int ty = 0; ty < 4; ty++) {
 			for (int tx = 0; tx < 4; tx++) {

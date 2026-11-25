@@ -106,32 +106,40 @@ static void ui_cornice(int x, int y, int w, int h, int c) {
 	ui_rett(x + w - 1, y, 1, h, c);
 }
 
-/* pannello con angoli smussati in diagonale (stile "scafo tecnologico") */
+/* inset per riga, per un angolo arrotondato (quasi un quarto di cerchio, raggio 3) */
+static const int PAN_INSET3[3] = {3, 1, 0};
+
+/* pannello con angoli arrotondati (piu' morbido del taglio diagonale) */
 static void ui_pannello(int x, int y, int w, int h) {
-	int c = h / 4;
-	if (c < 2) c = 2;
-	if (c > 6) c = 6;
-	if (c * 2 > h) c = h / 2;
+	int r = 3;
+	if (h < 2 * r) r = h / 2;
+	if (w < 2 * r) r = w / 2;
+	if (r < 0) r = 0;
 
 	for (int yy = 0; yy < h; yy++) {
 		int ins = 0;
-		if (yy < c) ins = c - yy;
-		else if (yy >= h - c) ins = c - (h - 1 - yy);
+		if (r >= 3) {
+			if (yy < 3) ins = PAN_INSET3[yy];
+			else if (yy >= h - 3) ins = PAN_INSET3[h - 1 - yy];
+		} else if (r > 0) {
+			if (yy < r) ins = r - yy;
+			else if (yy >= h - r) ins = r - (h - 1 - yy);
+		}
 		int rw = w - 2 * ins;
 		if (rw <= 0) continue;
 		ui_rett(x + ins, y + yy, rw, 1, K_PANNELLO);
 		ui_px(x + ins, y + yy, K_ORO);
 		ui_px(x + ins + rw - 1, y + yy, K_ORO);
 	}
-	if (w > 2 * c) {
-		ui_rett(x + c, y, w - 2 * c, 1, K_ORO);
-		ui_rett(x + c, y + h - 1, w - 2 * c, 1, K_ORO);
+	if (w - 2 * r > 0) {
+		ui_rett(x + r, y, w - 2 * r, 1, K_ORO);
+		ui_rett(x + r, y + h - 1, w - 2 * r, 1, K_ORO);
 	}
-	int ins1 = (1 < c) ? c - 1 : 0;
+	int ins1 = (r >= 3) ? PAN_INSET3[1] : (r > 1 ? r - 1 : 0);
 	if (w - 2 * ins1 - 2 > 0) ui_rett(x + ins1 + 1, y + 1, w - 2 * ins1 - 2, 1, K_LUCE);
 }
 
-/* barra orizzontale a tacche separate, come i misuratori di energia */
+/* barra orizzontale a tacche separate */
 static void ui_barra(int x, int y, int w, int h, int val, int max, int col) {
 	if (max <= 0) return;
 	if (val < 0) val = 0;
