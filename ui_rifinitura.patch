@@ -1,0 +1,35 @@
+--- a/source/template.c	2026-11-25 02:56:34.277274831 +0100
++++ b/source/template.c	2026-11-25 13:55:58.572872036 +0100
+@@ -754,6 +754,7 @@
+ 		int larg = n <= 5 ? 7 : 5;
+ 		int sx = cx - (n * (larg + 1) - 1) / 2;
+ 
++		ui_pannello(x - 4, CARTA_Y - 7, 40, 40);
+ 		if (i == cursore) ui_cornice(x - 2, CARTA_Y - 5, 36, 36, K_ORO);
+ 
+ 		ui_barra(x, 71, 32, 4, pv_campo[i], c->pv, K_ROSSO);
+@@ -831,15 +832,20 @@
+ 	ui_pulisci();
+ 
+ 	if (!iniziata) {
++		static const char *const ANTEPRIMA[4] = {"Scrap", "Frost", "Gilt", "Coolant"};
+ 		ui_pannello(8, 16, 224, 76);
+-		/* titolo su due righe, grosso, con ombra per un effetto "in rilievo" */
+-		ui_testo_c(122, 23, "DOOM", K_OMBRA, 4);
++		/* titolo su due righe, in rilievo: ombra dietro, luce sopra, riempimento sopra entrambe */
++		ui_testo_c(123, 24, "DOOM", K_OMBRA, 4);
++		ui_testo_c(119, 20, "DOOM", K_LUCE, 4);
+ 		ui_testo_c(120, 21, "DOOM", K_GIALLO, 4);
+-		ui_testo_c(122, 55, "MACHINE", K_OMBRA, 4);
++		ui_testo_c(123, 56, "MACHINE", K_OMBRA, 4);
++		ui_testo_c(119, 52, "MACHINE", K_LUCE, 4);
+ 		ui_testo_c(120, 53, "MACHINE", K_GIALLO, 4);
+ 		ui_testo_c(120, 95, "Premi START per iniziare", K_TESTO, 1);
+ 		for (int i = 0; i < 4; i++) {
+-			ui_testo_c(38 + 44 * i + 16, 144, POOL[i].nome, K_TESTO, 1);
++			int bx = 34 + 44 * i;
++			ui_pannello(bx, 104, 40, 48);
++			ui_testo_c(bx + 20, 144, ANTEPRIMA[i], K_TESTO, 1);
+ 		}
+ 	} else if (vinto || perso) {
+ 		ui_pannello(40, 48, 160, 64);

@@ -1,7 +1,7 @@
 #ifndef GRAFICA_H
 #define GRAFICA_H
 
-#define N_ARTI 7
+#define N_ARTI 10
 #define COL5(r, g, b) ((r) | ((g) << 5) | ((b) << 10))
 
 /* palette delle carte (banco 0) */
