@@ -16,15 +16,18 @@
 #define MAX_RITOCCHI 3
 #define MAX_DIFESA 4
 #define MAX_CAMPO 10
-#define SLOT_SPRITE 5
+#define SLOT_SPRITE MAX_CAMPO
 #define MAX_CAS 3
 #define MAX_AZ 6
 #define PV_GIOCATORE 20
 #define MAX_RISORSA 12
 
 #define DADO_Y 107
-#define CARTA_Y 36
-#define CARTA_X(i) (10 + 46 * (i))
+/* griglia delle carte in campo: 5 colonne, due righe (sopra/sotto) cosi'
+   si vedono tutte insieme invece di perderne alcune quando sono tante */
+#define CARTA_COLONNE 5
+#define CARTA_X(i) (10 + 46 * ((i) % CARTA_COLONNE))
+#define CARTA_Y(i) (((i) / CARTA_COLONNE) == 0 ? 28 : 71)
 
 /* ---------- generatore casuale (xorshift32) ---------- */
 static unsigned int seme_rng = 1;
@@ -60,6 +63,7 @@ typedef enum {
 	AZ_CARICA_SENTENZA, /* Sentenza +1 (Potere invariato) */
 	AZ_DANNO_SENTENZA,  /* danno pari alla sola Sentenza */
 	AZ_RIPARA_ADIACENTI, /* ripara az.val PV alle carte adiacenti sul campo */
+	AZ_DANNO_SOGLIA_SENTENZA, /* danno 3, o 5 se la Sentenza supera 5 */
 } TipoAzione;
 typedef struct {
 	TipoAzione tipo;
@@ -106,8 +110,10 @@ static const Carta POOL[] = {
 	 {{AZ_NULLA}, {AZ_DANNO_FISSO, 4}, {AZ_DANNO_FISSO, 4}, {AZ_RIPARA_ADIACENTI, 2}, {AZ_DANNO_FISSO, 4}}},
 	{"Synaptic Disruptor", 4, 1, {{'o', 4, 5}}, 3,
 	 {{AZ_NULLA}, {AZ_CARICA_SENTENZA}, {AZ_DANNO_SENTENZA}}},
+	{"Cerebral Amplifier", 4, 1, {{'~', 0, 0}}, 3,
+	 {{AZ_NULLA}, {AZ_DANNO_SOGLIA_SENTENZA}, {AZ_DANNO_SOGLIA_SENTENZA}}},
 };
-#define N_POOL 11
+#define N_POOL 12
 static const Carta NUCLEO = {"Doom Core", 4, 3, {{'=', 6}, {'=', 6}, {'=', 6}}, 4,
                               {{AZ_NULLA}, {AZ_DANNO_SP}, {AZ_CARICA_SP}, {AZ_CARICA_SP}}};
 #define N_MAZZO (N_POOL + 1)
@@ -123,6 +129,8 @@ static int tile_carta(int idx) {
 static int casella_ok(Casella c, int v) {
 	if (c.tipo == '=') return v == c.val;
 	if (c.tipo == 'o') return v == c.val || v == c.val2;
+	if (c.tipo == '~') return 1; /* "due dadi uguali": qualunque valore va bene qui,
+	                                 il vincolo (uguale all'altro '~') si controlla in assegna() */
 	return v > c.val;
 }
 
@@ -146,6 +154,7 @@ static const char *azione_desc(Azione a) {
 	case AZ_CARICA_SENTENZA: return "Carica Sentenza +1";
 	case AZ_DANNO_SENTENZA: return "Danno = Sentenza";
 	case AZ_RIPARA_ADIACENTI: sprintf(buf, "Ripara %d PV adiacenti", a.val); return buf;
+	case AZ_DANNO_SOGLIA_SENTENZA: return "Danno 3 (5 se Sentenza > 5)";
 	}
 	return "";
 }
@@ -389,6 +398,18 @@ static int assegna(void) {
 			if (riempita[k]) continue;
 			if ((passo == 0) != e_uguale) continue;
 			if (casella_ok(c->cas[k], dadi[d])) {
+				if (c->cas[k].tipo == '~') {
+					/* deve combaciare con l'eventuale altra casella '~'
+					   gia' riempita sulla stessa carta */
+					int combacia = 1;
+					for (int m = 0; m < c->n_cas; m++) {
+						if (m != k && c->cas[m].tipo == '~' && riempita[m] &&
+						    dadi[dado_in[m]] != dadi[d]) {
+							combacia = 0;
+						}
+					}
+					if (!combacia) continue;
+				}
 				riempita[k] = 1;
 				dado_in[k] = d;
 				stato_dado[d] = 1;
@@ -498,6 +519,7 @@ static void turno_nemici(void) {
 			}
 			break;
 		}
+		case AZ_DANNO_SOGLIA_SENTENZA: danno += (sentenza > 5) ? 5 : 3; break;
 		}
 	}
 	int dif = difesa_somma();
@@ -564,7 +586,7 @@ static void aggiorna_sprite(void) {
 			sprite_set(0, 198, sy, tile_carta(campo[cursore]));
 		} else {
 			for (int i = 0; i < n_campo && i < SLOT_SPRITE; i++) {
-				int y = (i == cursore) ? CARTA_Y - 3 : CARTA_Y;
+				int y = (i == cursore) ? CARTA_Y(i) - 3 : CARTA_Y(i);
 				sprite_set(i, CARTA_X(i), y, tile_carta(campo[i]));
 			}
 		}
@@ -588,6 +610,7 @@ static void ui_casella(int x, int y, Casella c, int piena) {
 	char t[8];
 	if (c.tipo == '=') sprintf(t, "%d", c.val);
 	else if (c.tipo == 'o') sprintf(t, "%d/%d", c.val, c.val2);
+	else if (c.tipo == '~') sprintf(t, "##");
 	else sprintf(t, ">%d", c.val);
 	ui_rett(x, y, 22, 11, piena ? K_VERDE : K_BARRA);
 	ui_cornice(x, y, 22, 11, K_ORO);
@@ -596,9 +619,11 @@ static void ui_casella(int x, int y, Casella c, int piena) {
 
 /* riquadro dei comandi, piu' piccolo e compatto */
 static void ui_suggerimenti(const char *r1, const char *r2) {
-	ui_pannello(2, 145, 236, 15);
-	ui_testo_c(120, 147, r1, K_TESTO, 1);
-	if (r2[0]) ui_testo_c(120, 154, r2, K_GRIGIO, 1);
+	/* un filo piu' in alto e con margine sotto, cosi' la seconda riga
+	   di testo non sconfina oltre il bordo dello schermo/riquadro */
+	ui_pannello(2, 142, 236, 17);
+	ui_testo_c(120, 144, r1, K_TESTO, 1);
+	if (r2[0]) ui_testo_c(120, 151, r2, K_GRIGIO, 1);
 }
 
 static void ui_riga_sel(int x, int y, int w) {
@@ -737,12 +762,12 @@ static void disegna_dadi(void) {
 /* disegna il menu "Attacca.../Vedi ciclo" sotto la carta selezionata */
 static void disegna_menu_carta(void) {
 	int n = n_voci_carta > 0 ? n_voci_carta : 1;
-	int w = 90;
+	int w = 100;
 	int h = n * 11 + 6;
-	int x = CARTA_X(cursore) + 16 - w / 2;
-	if (x < 2) x = 2;
-	if (x > 238 - w) x = 238 - w;
-	int y = CARTA_Y + 34;
+	/* posizione fissa sopra il pannello dei dettagli, cosi' non copre
+	   mai le icone delle carte (che ora possono essere su due righe) */
+	int x = (SCHERMO_W - w) / 2;
+	int y = 112;
 	ui_pannello(x, y, w, h);
 	for (int k = 0; k < n_voci_carta; k++) {
 		int ry = y + 3 + k * 11;
@@ -780,51 +805,41 @@ static void disegna_vedi_ciclo(void) {
 	}
 }
 
+/* Tutte le carte in campo (fino a 10, cinque sopra e cinque sotto) mostrano
+   solo icona e vita: i dettagli del ciclo si vedono soltanto per la carta
+   selezionata, nel pannello sotto. Cosi' non se ne perde piu' nessuna. */
 static void disegna_carte(void) {
 	char b[32];
 
-	for (int i = 0; i < n_campo && i < SLOT_SPRITE; i++) {
+	for (int i = 0; i < n_campo; i++) {
 		const Carta *c = prendi(campo[i]);
 		int x = CARTA_X(i);
-		int cx = x + 16;
-		int n = c->n_az;
-		int pos = eta_campo[i] % n;
-		int larg = n <= 5 ? 7 : 5;
-		int sx = cx - (n * (larg + 1) - 1) / 2;
+		int y = CARTA_Y(i);
 
 		/* pannello di sfondo dietro ogni icona, cosi' non si confonde
 		   con lo sfondo a tubi/circuiti del tavolo */
-		ui_rett(x - 2, CARTA_Y - 5, 36, 36, K_PANNELLO);
-		ui_cornice(x - 2, CARTA_Y - 5, 36, 36, i == cursore ? K_ORO : K_BARRA);
+		ui_rett(x - 2, y - 3, 36, 36, K_PANNELLO);
+		ui_cornice(x - 2, y - 3, 36, 36, i == cursore ? K_ORO : K_BARRA);
 
-		ui_barra(x, 71, 32, 4, pv_campo[i], c->pv, K_ROSSO);
-		sprintf(b, "%d/%d", pv_campo[i], c->pv);
-		ui_testo_c(cx, 78, b, K_TESTO, 1);
-
-		for (int j = 0; j < n; j++) {
-			char s[2] = {LETTERE[j], 0};
-			int attivo = (j == pos);
-			int bx = sx + (larg + 1) * j;
-			ui_rett(bx, 89, larg, 9, attivo ? K_GIALLO : K_BARRA);
-			ui_cornice(bx, 89, larg, 9, attivo ? K_ORO : K_TURCHESE);
-			ui_testo(bx + (larg > 5 ? 1 : 0), 90, s, attivo ? K_PANNELLO : K_TESTO, 1);
-		}
+		ui_barra(x, y + 34, 32, 4, pv_campo[i], c->pv, K_ROSSO);
 	}
 
 	if (n_campo > 0) {
 		const Carta *c = prendi(campo[cursore]);
 		int len = c->n_az;
 		int pos = eta_campo[cursore] % len;
-		ui_pannello(4, 100, 232, 36);
-		ui_testo(10, 104, c->nome, K_GIALLO, 1);
+		ui_pannello(4, 112, 232, 29);
+		ui_testo(10, 115, c->nome, K_GIALLO, 1);
+		sprintf(b, "PV %d/%d", pv_campo[cursore], c->pv);
+		ui_testo_c(120, 115, b, K_TESTO, 1);
 		sprintf(b, "Mazzo %d", N_MAZZO - prossima);
-		ui_testo_d(230, 104, b, K_GRIGIO, 1);
-		ui_testo(10, 115, "Servono", K_GRIGIO, 1);
+		ui_testo_d(230, 115, b, K_GRIGIO, 1);
+		ui_testo(10, 126, "Serve", K_GRIGIO, 1);
 		for (int k = 0; k < c->n_cas; k++) {
-			ui_casella(60 + 26 * k, 113, c->cas[k], 0);
+			ui_casella(42 + 26 * k, 124, c->cas[k], 0);
 		}
 		sprintf(b, "%c: %s", LETTERE[pos], azione_desc(c->az[pos]));
-		ui_testo(10, 126, b, K_GIALLO, 1);
+		ui_testo(10, 135, b, K_GIALLO, 1);
 	}
 
 	if (carta_menu) disegna_menu_carta();
