@@ -64,6 +64,7 @@ typedef enum {
 	AZ_DANNO_SENTENZA,  /* danno pari alla sola Sentenza */
 	AZ_RIPARA_ADIACENTI, /* ripara az.val PV alle carte adiacenti sul campo */
 	AZ_DANNO_SOGLIA_SENTENZA, /* danno 3, o 5 se la Sentenza supera 5 */
+	AZ_RIPARA_SE,     /* la carta ripara az.val PV a se stessa (fino al massimo) */
 } TipoAzione;
 typedef struct {
 	TipoAzione tipo;
@@ -71,7 +72,8 @@ typedef struct {
 } Azione;
 
 /* effetto scatenato quando la carta viene sconfitta */
-typedef enum { OM_NESSUNA, OM_DANNO_SX, OM_DANNO_TUTTI, OM_RIDUCI_PS } OnMorte;
+typedef enum { OM_NESSUNA, OM_DANNO_SX, OM_DANNO_TUTTI, OM_RIDUCI_PS,
+               OM_CARICA_POT /* Potere +om_val */ } OnMorte;
 
 typedef struct {
 	const char *nome;
@@ -104,8 +106,15 @@ static const Carta POOL[] = {
 	 {{AZ_NULLA}, {AZ_CARICA_SENTENZA}, {AZ_DANNO_SENTENZA}}},
 	{"Cerebral Amplifier", 4, 1, {{'~', 0, 0}}, 3,
 	 {{AZ_NULLA}, {AZ_DANNO_SOGLIA_SENTENZA}, {AZ_DANNO_SOGLIA_SENTENZA}}},
+	{"Pulse Pool", 3, 2, {{'=', 6}, {'=', 1}}, 4,
+	 {{AZ_NULLA}, {AZ_CARICA_POT}, {AZ_CARICA_POT}, {AZ_DANNO_FISSO, 3}}},
+	{"Logic Mainframe", 4, 2, {{'~', 0, 0}, {'~', 0, 0}}, 3,
+	 {{AZ_NULLA}, {AZ_CARICA_SENTENZA}, {AZ_CARICA_SENTENZA}},
+	 OM_CARICA_POT, 2},
+	{"Populace Grinder", 3, 2, {{'=', 3}, {'=', 3}}, 3,
+	 {{AZ_NULLA}, {AZ_DANNO_FISSO, 4}, {AZ_RIPARA_SE, 3}}},
 };
-#define N_POOL 8
+#define N_POOL 11
 static const Carta NUCLEO = {"Doom Core", 4, 3, {{'=', 6}, {'=', 6}, {'=', 6}}, 4,
                               {{AZ_NULLA}, {AZ_DANNO_SP}, {AZ_CARICA_SP}, {AZ_CARICA_SP}}};
 #define N_MAZZO (N_POOL + 1)
@@ -149,6 +158,7 @@ static const char *azione_desc(Azione a) {
 	case AZ_DANNO_SENTENZA: return "Danno = Sentenza";
 	case AZ_RIPARA_ADIACENTI: sprintf(buf, "Ripara %d PV adiacenti", a.val); return buf;
 	case AZ_DANNO_SOGLIA_SENTENZA: return "Danno 3 (5 se Sentenza > 5)";
+	case AZ_RIPARA_SE: sprintf(buf, "Auto-ripara %d PV", a.val); return buf;
 	}
 	return "";
 }
@@ -353,6 +363,8 @@ static void sconfitta(int i) {
 		if (potere < 0) potere = 0;
 		sentenza -= c->om_val;
 		if (sentenza < 0) sentenza = 0;
+	} else if (c->on_morte == OM_CARICA_POT) {
+		potere += c->om_val;
 	}
 
 	for (int j = i; j < n_campo - 1; j++) {
@@ -514,6 +526,10 @@ static void turno_nemici(void) {
 			break;
 		}
 		case AZ_DANNO_SOGLIA_SENTENZA: danno += (sentenza > 5) ? 5 : 3; break;
+		case AZ_RIPARA_SE:
+			pv_campo[i] += c->az[pos].val;
+			if (pv_campo[i] > c->pv) pv_campo[i] = c->pv;
+			break;
 		}
 	}
 	int dif = difesa_somma();
@@ -923,6 +939,8 @@ static void disegna_codex(void) {
 			sprintf(b, "Alla morte: %d danni a sx", c->om_val);
 		} else if (c->on_morte == OM_DANNO_TUTTI) {
 			sprintf(b, "Alla morte: %d danni a tutti", c->om_val);
+		} else if (c->on_morte == OM_CARICA_POT) {
+			sprintf(b, "Alla morte: Potere +%d", c->om_val);
 		} else {
 			sprintf(b, "Alla morte: -%d Potere/Sentenza", c->om_val);
 		}

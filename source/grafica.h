@@ -1,7 +1,7 @@
 #ifndef GRAFICA_H
 #define GRAFICA_H
 
-#define N_ARTI 9
+#define N_ARTI 12
 #include "doom_cards.h"
 #define COL5(r, g, b) ((r) | ((g) << 5) | ((b) << 10))
 
