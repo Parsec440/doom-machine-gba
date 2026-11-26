@@ -57,6 +57,9 @@ typedef enum {
 	AZ_LIMITA_DIFESA, /* il turno successivo si puo' mettere in difesa un solo dado */
 	AZ_DANNO_POT,     /* danno pari al solo Potere */
 	AZ_CARICA_POT,    /* Potere +1 (Sentenza invariata) */
+	AZ_CARICA_SENTENZA, /* Sentenza +1 (Potere invariato) */
+	AZ_DANNO_SENTENZA,  /* danno pari alla sola Sentenza */
+	AZ_RIPARA_ADIACENTI, /* ripara az.val PV alle carte adiacenti sul campo */
 } TipoAzione;
 typedef struct {
 	TipoAzione tipo;
@@ -99,8 +102,12 @@ static const Carta POOL[] = {
 	 {{AZ_NULLA}, {AZ_DANNO_FISSO, 3}, {AZ_DANNO_FISSO, 3}, {AZ_LIMITA_DIFESA}, {AZ_NULLA}}},
 	{"Extinction Collider", 6, 1, {{'o', 4, 5}}, 5,
 	 {{AZ_NULLA}, {AZ_DANNO_POT}, {AZ_CARICA_POT}, {AZ_DANNO_POT}, {AZ_CARICA_POT}}},
+	{"Recycling Vats", 6, 1, {{'o', 6, 1}}, 5,
+	 {{AZ_NULLA}, {AZ_DANNO_FISSO, 4}, {AZ_DANNO_FISSO, 4}, {AZ_RIPARA_ADIACENTI, 2}, {AZ_DANNO_FISSO, 4}}},
+	{"Synaptic Disruptor", 4, 1, {{'o', 4, 5}}, 3,
+	 {{AZ_NULLA}, {AZ_CARICA_SENTENZA}, {AZ_DANNO_SENTENZA}}},
 };
-#define N_POOL 9
+#define N_POOL 11
 static const Carta NUCLEO = {"Doom Core", 4, 3, {{'=', 6}, {'=', 6}, {'=', 6}}, 4,
                               {{AZ_NULLA}, {AZ_DANNO_SP}, {AZ_CARICA_SP}, {AZ_CARICA_SP}}};
 #define N_MAZZO (N_POOL + 1)
@@ -136,6 +143,9 @@ static const char *azione_desc(Azione a) {
 	case AZ_LIMITA_DIFESA: return "Limita difesa a 1 (prox turno)";
 	case AZ_DANNO_POT: return "Danno = Potere";
 	case AZ_CARICA_POT: return "Carica Potere +1";
+	case AZ_CARICA_SENTENZA: return "Carica Sentenza +1";
+	case AZ_DANNO_SENTENZA: return "Danno = Sentenza";
+	case AZ_RIPARA_ADIACENTI: sprintf(buf, "Ripara %d PV adiacenti", a.val); return buf;
 	}
 	return "";
 }
@@ -469,6 +479,22 @@ static void turno_nemici(void) {
 		case AZ_LIMITA_DIFESA: prossimo_limite_1 = 1; break;
 		case AZ_DANNO_POT: danno += potere; break;
 		case AZ_CARICA_POT: potere++; break;
+		case AZ_CARICA_SENTENZA: sentenza++; break;
+		case AZ_DANNO_SENTENZA: danno += sentenza; break;
+		case AZ_RIPARA_ADIACENTI: {
+			int v = c->az[pos].val;
+			if (i > 0) {
+				pv_campo[i - 1] += v;
+				int max = prendi(campo[i - 1])->pv;
+				if (pv_campo[i - 1] > max) pv_campo[i - 1] = max;
+			}
+			if (i + 1 < n_campo) {
+				pv_campo[i + 1] += v;
+				int max = prendi(campo[i + 1])->pv;
+				if (pv_campo[i + 1] > max) pv_campo[i + 1] = max;
+			}
+			break;
+		}
 		}
 	}
 	int dif = difesa_somma();
