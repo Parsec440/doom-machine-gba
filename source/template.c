@@ -121,6 +121,10 @@ static int casella_ok(Casella c, int v) {
 
 static const char LETTERE[] = "ABCDEF";
 
+/* etichette brevi per l'anteprima nella schermata del titolo: restano
+   dentro al riquadro invece di sconfinare come i nomi completi */
+static const char *const ANTEPRIMA[4] = {"Sentinel", "Relay", "Capacitor", "Drip"};
+
 static const char *azione_desc(Azione a) {
 	static char buf[24];
 	switch (a.tipo) {
@@ -754,7 +758,10 @@ static void disegna_carte(void) {
 		int larg = n <= 5 ? 7 : 5;
 		int sx = cx - (n * (larg + 1) - 1) / 2;
 
-		if (i == cursore) ui_cornice(x - 2, CARTA_Y - 5, 36, 36, K_ORO);
+		/* pannello di sfondo dietro ogni icona, cosi' non si confonde
+		   con lo sfondo a tubi/circuiti del tavolo */
+		ui_rett(x - 2, CARTA_Y - 5, 36, 36, K_PANNELLO);
+		ui_cornice(x - 2, CARTA_Y - 5, 36, 36, i == cursore ? K_ORO : K_BARRA);
 
 		ui_barra(x, 71, 32, 4, pv_campo[i], c->pv, K_ROSSO);
 		sprintf(b, "%d/%d", pv_campo[i], c->pv);
@@ -831,11 +838,23 @@ static void disegna(void) {
 	ui_pulisci();
 
 	if (!iniziata) {
-		ui_pannello(20, 44, 200, 54);
-		ui_testo_c(120, 54, "Doom Machine", K_GIALLO, 2);
+		ui_pannello(14, 14, 212, 80);
+
+		/* titolo in rilievo su due righe (ombra + luce + colore pieno) */
+		ui_testo_c(122, 26, "DOOM", K_OMBRA, 3);
+		ui_testo_c(118, 22, "DOOM", K_LUCE, 3);
+		ui_testo_c(120, 24, "DOOM", K_GIALLO, 3);
+
+		ui_testo_c(121, 53, "MACHINE", K_OMBRA, 2);
+		ui_testo_c(119, 51, "MACHINE", K_LUCE, 2);
+		ui_testo_c(120, 52, "MACHINE", K_ROSSO, 2);
+
 		ui_testo_c(120, 80, "Premi START per iniziare", K_TESTO, 1);
+
 		for (int i = 0; i < 4; i++) {
-			ui_testo_c(38 + 44 * i + 16, 144, POOL[i].nome, K_TESTO, 1);
+			int cx = 38 + 44 * i + 16;
+			ui_pannello(cx - 21, 139, 42, 15);
+			ui_testo_c(cx, 143, ANTEPRIMA[i], K_TESTO, 1);
 		}
 	} else if (vinto || perso) {
 		ui_pannello(40, 48, 160, 64);
