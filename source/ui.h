@@ -202,7 +202,7 @@ static int ui_largh_glifo(int ch, int *prima) {
 	while (lo <= 4 && g[lo] == 0) lo++;
 	if (lo > 4) {
 		*prima = 0;
-		return 2;
+		return 3; /* spazio piu' largo: le parole si staccano meglio */
 	}
 	while (hi >= 0 && g[hi] == 0) hi--;
 	*prima = lo;

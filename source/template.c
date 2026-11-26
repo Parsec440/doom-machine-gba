@@ -26,8 +26,8 @@
 /* griglia delle carte in campo: 5 colonne, due righe (sopra/sotto) cosi'
    si vedono tutte insieme invece di perderne alcune quando sono tante */
 #define CARTA_COLONNE 5
-#define CARTA_X(i) (10 + 46 * ((i) % CARTA_COLONNE))
-#define CARTA_Y(i) (((i) / CARTA_COLONNE) == 0 ? 28 : 71)
+#define CARTA_X(i) (20 + 42 * ((i) % CARTA_COLONNE))
+#define CARTA_Y(i) (((i) / CARTA_COLONNE) == 0 ? 29 : 72)
 
 /* ---------- generatore casuale (xorshift32) ---------- */
 static unsigned int seme_rng = 1;
@@ -159,7 +159,7 @@ static const char LETTERE[] = "ABCDEF";
 
 /* etichette brevi per l'anteprima nella schermata del titolo: restano
    dentro al riquadro invece di sconfinare come i nomi completi */
-static const char *const ANTEPRIMA[4] = {"Misery", "Complex", "Flaw", "Siphon"};
+static const char *const ANTEPRIMA[4] = {"Misery", "Power", "Flaw", "Siphon"};
 
 static const char *azione_desc(Azione a) {
 	static char buf[24];
@@ -699,6 +699,9 @@ static void aggiorna_sprite(void) {
 	}
 }
 
+#define CASELLA_W 24
+#define CASELLA_P 28 /* passo tra una casella e la successiva */
+
 static void ui_casella(int x, int y, Casella c, int piena) {
 	char t[8];
 	if (c.tipo == '=') sprintf(t, "%d", c.val);
@@ -707,9 +710,9 @@ static void ui_casella(int x, int y, Casella c, int piena) {
 	else if (c.tipo == '<') sprintf(t, "<%d", c.val);
 	else if (c.tipo == '+') strcpy(t, c.val == 2 ? "a+b" : (c.val == 1 ? "b" : "a"));
 	else sprintf(t, ">%d", c.val);
-	ui_rett(x, y, 22, 11, piena ? K_VERDE : K_BARRA);
-	ui_cornice(x, y, 22, 11, K_ORO);
-	ui_testo_c(x + 11, y + 2, t, piena ? K_PANNELLO : K_TESTO, 1);
+	ui_rett(x, y, CASELLA_W, 11, piena ? K_VERDE : K_BARRA);
+	ui_cornice(x, y, CASELLA_W, 11, K_ORO);
+	ui_testo_c(x + CASELLA_W / 2, y + 2, t, piena ? K_PANNELLO : K_TESTO, 1);
 }
 
 /* stampa un testo andando a capo (una volta sola) se non entra in maxw,
@@ -750,13 +753,38 @@ static int ui_testo_wrap(int x, int y, int maxw, const char *s, int c, int scala
 	return y + 16 * scala;
 }
 
-/* riquadro dei comandi, piu' piccolo e compatto */
-static void ui_suggerimenti(const char *r1, const char *r2) {
-	/* un filo piu' in alto e con margine sotto, cosi' la seconda riga
-	   di testo non sconfina oltre il bordo dello schermo/riquadro */
-	ui_pannello(2, 142, 236, 17);
-	ui_testo_c(120, 144, r1, K_TESTO, 1);
-	if (r2[0]) ui_testo_c(120, 151, r2, K_GRIGIO, 1);
+/* barra dei comandi su una sola riga. spec = "TASTO|azione;TASTO|azione;..."
+   Il tasto sta in una piccola etichetta evidenziata, l'azione e' testo
+   normale; tutta la riga e' centrata e sta sempre dentro il riquadro. */
+static void ui_aiuto(const char *spec) {
+	char tasto[6][12], azione[6][16];
+	int n = 0;
+	const char *p = spec;
+	while (*p && n < 6) {
+		int a = 0, b = 0;
+		while (*p && *p != '|' && a < 11) tasto[n][a++] = *p++;
+		tasto[n][a] = 0;
+		if (*p == '|') p++;
+		while (*p && *p != ';' && b < 15) azione[n][b++] = *p++;
+		azione[n][b] = 0;
+		while (*p && *p != ';') p++;
+		if (*p == ';') p++;
+		n++;
+	}
+	int tot = 0;
+	for (int i = 0; i < n; i++) {
+		tot += ui_larghezza(tasto[i], 1) + 6 + 3 + ui_larghezza(azione[i], 1);
+		if (i + 1 < n) tot += 8;
+	}
+	ui_pannello(2, 146, 236, 13);
+	int x = 120 - tot / 2;
+	for (int i = 0; i < n; i++) {
+		int cw = ui_larghezza(tasto[i], 1) + 6;
+		ui_rett(x, 148, cw, 9, K_SEL);
+		ui_testo(x + 3, 149, tasto[i], K_GIALLO, 1);
+		x += cw + 3;
+		x = ui_testo(x, 149, azione[i], K_TESTO, 1) + 7;
+	}
 }
 
 static void ui_riga_sel(int x, int y, int w) {
@@ -767,19 +795,20 @@ static void ui_riga_sel(int x, int y, int w) {
 }
 
 /* potere e sentenza: barre laterali piu' piccole */
-static void disegna_barre_laterali(void) {
+static void lato_barra(int x, const char *nome, int val, int col) {
 	char b[8];
-	int y = 40, h = 56, w = 6;
+	int cx = x + 3;
+	ui_pannello(cx - 8, 28, 16, 11);
+	ui_testo_c(cx, 30, nome, col, 1);
+	ui_barra_v(x, 41, 6, 49, val, MAX_RISORSA, col);
+	ui_pannello(cx - 8, 91, 16, 11);
+	sprintf(b, "%d", val);
+	ui_testo_c(cx, 93, b, K_TESTO, 1);
+}
 
-	ui_barra_v(3, y, w, h, potere, MAX_RISORSA, K_GIALLO);
-	ui_testo_c(3 + w / 2, y - 8, "P", K_GIALLO, 1);
-	sprintf(b, "%d", potere);
-	ui_testo_c(3 + w / 2, y + h + 2, b, K_TESTO, 1);
-
-	ui_barra_v(231, y, w, h, sentenza, MAX_RISORSA, K_TURCHESE);
-	ui_testo_c(231 + w / 2, y - 8, "S", K_TURCHESE, 1);
-	sprintf(b, "%d", sentenza);
-	ui_testo_c(231 + w / 2, y + h + 2, b, K_TESTO, 1);
+static void disegna_barre_laterali(void) {
+	lato_barra(5, "P", potere, K_GIALLO);
+	lato_barra(229, "S", sentenza, K_TURCHESE);
 }
 
 static void ui_hud(void) {
@@ -788,32 +817,38 @@ static void ui_hud(void) {
 
 	sprintf(b, "TURNO %d", turno);
 	ui_testo(8, 5, b, K_GIALLO, 1);
-	ui_testo(70, 5, "PV", K_TESTO, 1);
-	ui_barra(84, 5, 60, 7, pv_giocatore, PV_GIOCATORE, K_ROSSO);
+	ui_testo(62, 5, "PV", K_TESTO, 1);
+	ui_barra(76, 5, 56, 7, pv_giocatore, PV_GIOCATORE, K_ROSSO);
 	sprintf(b, "%d/%d", pv_giocatore < 0 ? 0 : pv_giocatore, PV_GIOCATORE);
-	ui_testo(150, 5, b, K_TESTO, 1);
+	ui_testo(138, 5, b, K_TESTO, 1);
 	if (dadi_bloccati > 0) sprintf(b, "DADI %d -%d", n_dadi, dadi_bloccati);
 	else sprintf(b, "DADI %d", n_dadi);
 	ui_testo_d(232, 5, b, K_TESTO, 1);
 
 	sprintf(b, "DIFESA %d", difesa_somma());
 	ui_testo(8, 15, b, K_BLU, 1);
+	sprintf(b, "MAZZO %d", N_MAZZO - prossima);
+	ui_testo_c(120, 15, b, K_GRIGIO, 1);
+	ui_testo_d(232, 15, "START pausa", K_GRIGIO, 1);
 }
 
 static void disegna_dadi(void) {
 	char b[64];
 	int q = tirato ? n_attivi : dadi_disponibili();
 
-	if (!attacco && turno > 1) {
+	if (!attacco && !menu_aperto && turno > 1) {
 		if (ultimo_danno > 0) {
 			sprintf(b, "Turno nemico: -%d PV (difesa %d)", ultimo_danno, ultima_difesa);
 		} else {
 			sprintf(b, "Turno nemico: nessun danno");
 		}
-		if (limite_difesa < MAX_DIFESA) strcat(b, " - difesa max 1 dado!");
-		int w = ui_larghezza(b, 1) + 14;
-		ui_pannello(120 - w / 2, 26, w, 10);
+		const char *nota = (limite_difesa < MAX_DIFESA) ? "Difesa massima: 1 dado!" : 0;
+		int w = ui_larghezza(b, 1);
+		if (nota && ui_larghezza(nota, 1) > w) w = ui_larghezza(nota, 1);
+		w += 16;
+		ui_pannello(120 - w / 2, 26, w, nota ? 21 : 11);
 		ui_testo_c(120, 28, b, K_TESTO, 1);
+		if (nota) ui_testo_c(120, 38, nota, K_ROSSO, 1);
 	}
 
 	if (!tirato) {
@@ -836,19 +871,20 @@ static void disegna_dadi(void) {
 		ui_testo(168, 45, b, K_TESTO, 1);
 		ui_testo(70, 57, "Servono", K_GRIGIO, 1);
 		for (int k = 0; k < c->n_cas; k++) {
-			ui_casella(70 + 26 * k, 68, c->cas[k], riempita[k]);
+			ui_casella(70 + CASELLA_P * k, 68, c->cas[k], riempita[k]);
 		}
 	}
 
 	if (tirato && !attacco && menu_aperto) {
 		costruisci_menu();
 		int n = n_voci > 0 ? n_voci : 1;
-		int w = 104;
+		int w = 124;
 		int h = n * 11 + 6;
 		int cx = dado_x(selezionato, q) + 8;
 		int mx = cx - w / 2;
-		if (mx < 2) mx = 2;
-		if (mx > 238 - w) mx = 238 - w;
+		/* lascia libere le barre laterali (riquadri larghi 16 px per lato) */
+		if (mx > 222 - w) mx = 222 - w;
+		if (mx < 18) mx = 18;
 		int my = 97 - h;
 		ui_pannello(mx, my, w, h);
 		if (n_voci == 0) {
@@ -868,7 +904,7 @@ static void disegna_dadi(void) {
 				case AZX_DIFESA: sprintf(cnt, "%d/%d", difesa_conta(), limite_difesa); break;
 				default: break;
 				}
-				if (cnt[0]) ui_testo_d(mx + w - 6, ry + 2, cnt, K_GRIGIO, 1);
+				if (cnt[0]) ui_testo_d(mx + w - 8, ry + 2, cnt, K_GRIGIO, 1);
 			}
 		}
 		ui_freccia_giu(cx, 97, K_ORO);
@@ -882,36 +918,38 @@ static void disegna_dadi(void) {
 			if (i == selezionato) ui_freccia_su(cx, 121, K_ORO);
 			if (l != ' ') {
 				char s[2] = {l, 0};
+				ui_rett(cx - 6, 127, 13, 11, K_PANNELLO);
+				ui_cornice(cx - 6, 127, 13, 11, K_BORDO);
 				ui_testo_c(cx, 129, s, col, 1);
 			}
 		}
 	}
 
 	if (attacco) {
-		ui_suggerimenti("A metti il dado  B annulla", "Sx/Dx dado");
+		ui_aiuto("A|metti dado;B|annulla;Sx/Dx|dado");
 	} else if (!tirato) {
-		ui_suggerimenti("A tira  R carte  SELECT fine", "START pausa");
+		ui_aiuto("A|tira;R|carte;SELECT|fine turno");
 	} else if (menu_aperto) {
-		ui_suggerimenti("Su/Giu voce  A conferma  B chiudi", "");
+		ui_aiuto("Su/Giu|voce;A|conferma;B|chiudi");
 	} else {
-		ui_suggerimenti("Sx/Dx dado  A azioni  R carte", "SELECT fine  START pausa");
+		ui_aiuto("Sx/Dx|dado;A|menu;R|carte;SELECT|fine");
 	}
 }
 
 /* disegna il menu "Attacca.../Vedi ciclo" sotto la carta selezionata */
 static void disegna_menu_carta(void) {
 	int n = n_voci_carta > 0 ? n_voci_carta : 1;
-	int w = 100;
+	int w = 94;
 	int h = n * 11 + 6;
-	/* posizione fissa sopra il pannello dei dettagli, cosi' non copre
-	   mai le icone delle carte (che ora possono essere su due righe) */
-	int x = (SCHERMO_W - w) / 2;
-	int y = 112;
+	/* dentro al riquadro dei dettagli, a destra: cosi' non copre le carte
+	   (gli sprite starebbero sopra) ne' taglia il testo a sinistra */
+	int x = 138;
+	int y = 113;
 	ui_pannello(x, y, w, h);
 	for (int k = 0; k < n_voci_carta; k++) {
 		int ry = y + 3 + k * 11;
 		if (k == voce_carta) ui_riga_sel(x + 3, ry, w - 6);
-		ui_testo(x + 10, ry + 2, NOME_VOCE_CARTA[voci_carta[k]],
+		ui_testo(x + 12, ry + 2, NOME_VOCE_CARTA[voci_carta[k]],
 		         k == voce_carta ? K_GIALLO : K_TESTO, 1);
 	}
 }
@@ -922,7 +960,7 @@ static void disegna_vedi_ciclo(void) {
 	const Carta *c = prendi(campo[cursore]);
 	int n = c->n_az;
 	int h = 24 + n * 10;
-	int w = 176;
+	int w = 184;
 	int x = 4;
 	int y = (160 - h) / 2;
 	if (y < 8) y = 8;
@@ -967,26 +1005,29 @@ static void disegna_carte(void) {
 		const Carta *c = prendi(campo[cursore]);
 		int len = c->n_az;
 		int pos = eta_campo[cursore] % len;
-		ui_pannello(4, 112, 232, 29);
-		ui_testo(10, 115, c->nome, K_GIALLO, 1);
-		sprintf(b, "PV %d/%d", pv_campo[cursore], c->pv);
-		ui_testo_c(120, 115, b, K_TESTO, 1);
-		sprintf(b, "Mazzo %d", N_MAZZO - prossima);
-		ui_testo_d(230, 115, b, K_GRIGIO, 1);
-		ui_testo(10, 126, "Serve", K_GRIGIO, 1);
+		ui_pannello(4, 111, 232, 34);
+		ui_testo(10, 113, c->nome, K_GIALLO, 1);
+		ui_testo(10, 125, "Serve", K_GRIGIO, 1);
 		for (int k = 0; k < c->n_cas; k++) {
-			ui_casella(42 + 26 * k, 124, c->cas[k], 0);
+			ui_casella(42 + CASELLA_P * k, 123, c->cas[k], 0);
 		}
-		sprintf(b, "%c: %s", LETTERE[pos], azione_desc(c->az[pos]));
-		ui_testo(10, 135, b, K_GIALLO, 1);
+		/* PV, step e azione di turno stanno sotto al menu quando e' aperto */
+		if (!carta_menu) {
+			sprintf(b, "PV %d/%d", pv_campo[cursore], c->pv);
+			ui_testo_d(230, 113, b, K_TESTO, 1);
+			sprintf(b, "Step %d/%d", pos + 1, len);
+			ui_testo_d(230, 125, b, K_GRIGIO, 1);
+			sprintf(b, "%c: %s", LETTERE[pos], azione_desc(c->az[pos]));
+			ui_testo(10, 136, b, K_GIALLO, 1);
+		}
 	}
 
 	if (carta_menu) disegna_menu_carta();
 
 	if (carta_menu) {
-		ui_suggerimenti("Su/Giu voce  A conferma  B chiudi", "");
+		ui_aiuto("Su/Giu|voce;A|conferma;B|chiudi");
 	} else {
-		ui_suggerimenti("Sx/Dx carta  A menu  L dadi", "SELECT fine  START pausa");
+		ui_aiuto("Sx/Dx|carta;A|menu;L|dadi;SELECT|fine");
 	}
 }
 
@@ -1002,24 +1043,22 @@ static void disegna_codex(void) {
 
 	ui_pannello(px, 10, pw, 130);
 
-	sprintf(b, "%d/%d", codex_cursore + 1, N_MAZZO);
-	ui_testo_d(px + pw - 6, 13, b, K_GRIGIO, 1);
-	ui_testo_c(cx, 13, c->nome, K_GIALLO, 1);
+	ui_testo_c(cx, 14, c->nome, K_GIALLO, 1);
 
 	sprintf(b, "PV %d", c->pv);
-	ui_testo_c(cx, 24, b, K_TESTO, 1);
+	ui_testo_c(cx, 25, b, K_TESTO, 1);
 
-	ui_testo_c(cx, 35, "Servono", K_GRIGIO, 1);
+	ui_testo_c(cx, 36, "Servono", K_GRIGIO, 1);
 	{
-		int larg = c->n_cas * 26 - 4;
+		int larg = c->n_cas * CASELLA_P - (CASELLA_P - CASELLA_W);
 		int sx = cx - larg / 2;
 		for (int k = 0; k < c->n_cas; k++) {
-			ui_casella(sx + 26 * k, 44, c->cas[k], 0);
+			ui_casella(sx + CASELLA_P * k, 45, c->cas[k], 0);
 		}
 	}
 
-	ui_testo_c(cx, 59, "Ciclo", K_GRIGIO, 1);
-	int ry = 70;
+	ui_testo_c(cx, 61, "Ciclo", K_GRIGIO, 1);
+	int ry = 72;
 	for (int i = 0; i < c->n_az; i++) {
 		sprintf(b, "%c: %s", LETTERE[i], azione_desc(c->az[i]));
 		ry = ui_testo_wrap(cx, ry, maxw, b, K_GIALLO, 1, 1);
@@ -1037,12 +1076,14 @@ static void disegna_codex(void) {
 		} else {
 			sprintf(b, "Alla morte: -%d Potere/Sentenza", c->om_val);
 		}
-		ui_testo_wrap(cx, ry + 1, maxw, b, K_ROSSO, 1, 1);
+		ui_testo_wrap(cx, ry + 2, maxw, b, K_ROSSO, 1, 1);
 	}
 
 	ui_pannello(178, 10, 58, 100);
+	sprintf(b, "%d/%d", codex_cursore + 1, N_MAZZO);
+	ui_testo_c(207, 15, b, K_GRIGIO, 1);
 
-	ui_suggerimenti("Sx/Dx carta  B indietro", "");
+	ui_aiuto("Sx/Dx|carta;B|indietro");
 }
 
 static void disegna_pausa(void) {
@@ -1054,7 +1095,7 @@ static void disegna_pausa(void) {
 		if (k == voce_pausa) ui_riga_sel(55, ry, 130);
 		ui_testo(70, ry + 2, V[k], k == voce_pausa ? K_GIALLO : K_TESTO, 1);
 	}
-	ui_suggerimenti("Su/Giu voce  A conferma", "B o START riprendi");
+	ui_aiuto("Su/Giu|voce;A|conferma;B|riprendi");
 }
 
 static void disegna_conferma(void) {
@@ -1073,7 +1114,7 @@ static void disegna_conferma(void) {
 		sprintf(b, "Difesa attuale: %d", difesa_somma());
 		ui_testo_c(120, 77, b, K_BLU, 1);
 	}
-	ui_suggerimenti("A conferma", "B o SELECT annulla");
+	ui_aiuto("A|conferma;B|annulla");
 }
 
 static void disegna(void) {
@@ -1126,7 +1167,7 @@ static void disegna(void) {
 		disegna_conferma();
 	} else {
 		ui_hud();
-		disegna_barre_laterali();
+		if (!vedi_ciclo) disegna_barre_laterali();
 		if (vista == 0) disegna_dadi();
 		else if (vedi_ciclo) disegna_vedi_ciclo();
 		else disegna_carte();
