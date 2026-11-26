@@ -67,6 +67,8 @@ typedef enum {
 	AZ_RIPARA_SE,     /* la carta ripara az.val PV a se stessa (fino al massimo) */
 	AZ_DANNO_CARTE,   /* danno pari al numero di carte in campo */
 	AZ_BLOCCA_DADO,   /* il turno successivo si tira un dado in meno */
+	AZ_RIMUOVI_DADO,  /* come BLOCCA_DADO, ma per sempre se la Sentenza supera 6 */
+	AZ_AVANZA_ADIACENTI, /* le carte accanto eseguono un passo in piu' questo turno */
 } TipoAzione;
 typedef struct {
 	TipoAzione tipo;
@@ -123,8 +125,12 @@ static const Carta POOL[] = {
 	   valere la somma dei primi due */
 	{"Soul Harvester", 3, 3, {{'+', 0}, {'+', 1}, {'+', 2}}, 4,
 	 {{AZ_NULLA}, {AZ_DANNO_FISSO, 5}, {AZ_BLOCCA_DADO}, {AZ_DANNO_FISSO, 5}}},
+	{"Stasis Generator", 6, 2, {{'=', 3}, {'<', 3}}, 4,
+	 {{AZ_NULLA}, {AZ_RIMUOVI_DADO}, {AZ_NULLA}, {AZ_RIMUOVI_DADO}}},
+	{"Hard Cycle Storage", 5, 2, {{'=', 3}, {'>', 3}}, 4,
+	 {{AZ_NULLA}, {AZ_AVANZA_ADIACENTI}, {AZ_DANNO_FISSO, 4}, {AZ_AVANZA_ADIACENTI}}},
 };
-#define N_POOL 13
+#define N_POOL 15
 static const Carta NUCLEO = {"Doom Core", 4, 3, {{'=', 6}, {'=', 6}, {'=', 6}}, 4,
                               {{AZ_NULLA}, {AZ_DANNO_SP}, {AZ_CARICA_SP}, {AZ_CARICA_SP}}};
 #define N_MAZZO (N_POOL + 1)
@@ -142,6 +148,7 @@ static int tile_carta(int idx) {
 static int casella_ok(Casella c, int v) {
 	if (c.tipo == '=') return v == c.val;
 	if (c.tipo == 'o') return v == c.val || v == c.val2;
+	if (c.tipo == '<') return v < c.val;
 	if (c.tipo == '+') return 1; /* addendi e somma si controllano in assegna() */
 	if (c.tipo == '~') return 1; /* "due dadi uguali": qualunque valore va bene qui,
 	                                 il vincolo (uguale all'altro '~') si controlla in assegna() */
@@ -172,6 +179,8 @@ static const char *azione_desc(Azione a) {
 	case AZ_RIPARA_SE: sprintf(buf, "Auto-ripara %d PV", a.val); return buf;
 	case AZ_DANNO_CARTE: return "Danno = carte in campo";
 	case AZ_BLOCCA_DADO: return "Blocca 1 dado (prox turno)";
+	case AZ_RIMUOVI_DADO: return "Rimuove dado (perm. Sen>6)";
+	case AZ_AVANZA_ADIACENTI: return "Carte accanto: 2 step";
 	}
 	return "";
 }
@@ -181,6 +190,8 @@ static int prossima = 0;
 static int campo[MAX_CAMPO];
 static int pv_campo[MAX_CAMPO];
 static int eta_campo[MAX_CAMPO];
+/* passi in piu' che ogni carta esegue nel turno nemico corrente */
+static int passi_extra[MAX_CAMPO];
 static int n_campo = 0;
 
 static void prepara_mazzo(void) {
@@ -539,43 +550,67 @@ static void costruisci_menu_carta(void) {
 	if (voce_carta >= n_voci_carta) voce_carta = n_voci_carta > 0 ? n_voci_carta - 1 : 0;
 }
 
+/* esegue il passo 'pos' del ciclo della carta in posizione i */
+static void esegui_azione(int i, int pos, int *danno) {
+	const Carta *c = prendi(campo[i]);
+	switch (c->az[pos].tipo) {
+	case AZ_NULLA: break;
+	case AZ_DANNO_SP: *danno += potere + sentenza; break;
+	case AZ_CARICA_SP: potere++; sentenza++; break;
+	case AZ_DANNO_SX: if (i > 0) *danno += pv_campo[i - 1]; break;
+	case AZ_DANNO_FISSO: *danno += c->az[pos].val; break;
+	case AZ_LIMITA_DIFESA: prossimo_limite_1 = 1; break;
+	case AZ_DANNO_POT: *danno += potere; break;
+	case AZ_CARICA_POT: potere++; break;
+	case AZ_CARICA_SENTENZA: sentenza++; break;
+	case AZ_DANNO_SENTENZA: *danno += sentenza; break;
+	case AZ_RIPARA_ADIACENTI: {
+		int v = c->az[pos].val;
+		if (i > 0) {
+			pv_campo[i - 1] += v;
+			int max = prendi(campo[i - 1])->pv;
+			if (pv_campo[i - 1] > max) pv_campo[i - 1] = max;
+		}
+		if (i + 1 < n_campo) {
+			pv_campo[i + 1] += v;
+			int max = prendi(campo[i + 1])->pv;
+			if (pv_campo[i + 1] > max) pv_campo[i + 1] = max;
+		}
+		break;
+	}
+	case AZ_DANNO_SOGLIA_SENTENZA: *danno += (sentenza > 5) ? 5 : 3; break;
+	case AZ_DANNO_CARTE: *danno += n_campo; break;
+	case AZ_BLOCCA_DADO: prossimo_blocco++; break;
+	case AZ_RIMUOVI_DADO:
+		if (sentenza > 6) {
+			if (n_dadi > 1) n_dadi--; /* per sempre */
+		} else {
+			prossimo_blocco++;
+		}
+		break;
+	case AZ_AVANZA_ADIACENTI: break; /* gia' applicato in turno_nemici() */
+	case AZ_RIPARA_SE:
+		pv_campo[i] += c->az[pos].val;
+		if (pv_campo[i] > c->pv) pv_campo[i] = c->pv;
+		break;
+	}
+}
+
 static void turno_nemici(void) {
 	int danno = 0;
+	/* "Hard Cycle Storage": le carte accanto eseguono un passo in piu'
+	   (due step invece di uno) in questo turno */
+	for (int i = 0; i < n_campo; i++) passi_extra[i] = 0;
 	for (int i = 0; i < n_campo; i++) {
 		const Carta *c = prendi(campo[i]);
-		int pos = eta_campo[i] % c->n_az;
-		switch (c->az[pos].tipo) {
-		case AZ_NULLA: break;
-		case AZ_DANNO_SP: danno += potere + sentenza; break;
-		case AZ_CARICA_SP: potere++; sentenza++; break;
-		case AZ_DANNO_SX: if (i > 0) danno += pv_campo[i - 1]; break;
-		case AZ_DANNO_FISSO: danno += c->az[pos].val; break;
-		case AZ_LIMITA_DIFESA: prossimo_limite_1 = 1; break;
-		case AZ_DANNO_POT: danno += potere; break;
-		case AZ_CARICA_POT: potere++; break;
-		case AZ_CARICA_SENTENZA: sentenza++; break;
-		case AZ_DANNO_SENTENZA: danno += sentenza; break;
-		case AZ_RIPARA_ADIACENTI: {
-			int v = c->az[pos].val;
-			if (i > 0) {
-				pv_campo[i - 1] += v;
-				int max = prendi(campo[i - 1])->pv;
-				if (pv_campo[i - 1] > max) pv_campo[i - 1] = max;
-			}
-			if (i + 1 < n_campo) {
-				pv_campo[i + 1] += v;
-				int max = prendi(campo[i + 1])->pv;
-				if (pv_campo[i + 1] > max) pv_campo[i + 1] = max;
-			}
-			break;
-		}
-		case AZ_DANNO_SOGLIA_SENTENZA: danno += (sentenza > 5) ? 5 : 3; break;
-		case AZ_DANNO_CARTE: danno += n_campo; break;
-		case AZ_BLOCCA_DADO: prossimo_blocco++; break;
-		case AZ_RIPARA_SE:
-			pv_campo[i] += c->az[pos].val;
-			if (pv_campo[i] > c->pv) pv_campo[i] = c->pv;
-			break;
+		if (c->az[eta_campo[i] % c->n_az].tipo != AZ_AVANZA_ADIACENTI) continue;
+		if (i > 0) passi_extra[i - 1]++;
+		if (i + 1 < n_campo) passi_extra[i + 1]++;
+	}
+	for (int i = 0; i < n_campo; i++) {
+		const Carta *c = prendi(campo[i]);
+		for (int e = 0; e <= passi_extra[i]; e++) {
+			esegui_azione(i, (eta_campo[i] + e) % c->n_az, &danno);
 		}
 	}
 	int dif = difesa_somma();
@@ -596,7 +631,7 @@ static void fine_turno(void) {
 	prossimo_blocco = 0;
 	tirato = 0;
 	turno++;
-	for (int i = 0; i < n_campo; i++) eta_campo[i]++;
+	for (int i = 0; i < n_campo; i++) eta_campo[i] += 1 + passi_extra[i];
 	entra_carta();
 	cursore = 0;
 	voce_sel = 0;
@@ -669,6 +704,7 @@ static void ui_casella(int x, int y, Casella c, int piena) {
 	if (c.tipo == '=') sprintf(t, "%d", c.val);
 	else if (c.tipo == 'o') sprintf(t, "%d/%d", c.val, c.val2);
 	else if (c.tipo == '~') sprintf(t, "##");
+	else if (c.tipo == '<') sprintf(t, "<%d", c.val);
 	else if (c.tipo == '+') strcpy(t, c.val == 2 ? "a+b" : (c.val == 1 ? "b" : "a"));
 	else sprintf(t, ">%d", c.val);
 	ui_rett(x, y, 22, 11, piena ? K_VERDE : K_BARRA);
