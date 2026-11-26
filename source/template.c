@@ -14,6 +14,9 @@
 #define MAX_DADI 10
 #define MAX_RILANCI 3
 #define MAX_RITOCCHI 3
+/* modalita' difficile: meno rilanci e meno ritocchi per turno */
+#define MAX_RILANCI_DIFF 2
+#define MAX_RITOCCHI_DIFF 2
 #define MAX_DIFESA 4
 #define MAX_CAMPO 10
 #define SLOT_SPRITE MAX_CAMPO
@@ -232,6 +235,11 @@ static int rilanci_usati = 0;
 static int ritocchi_usati = 0;
 static int tirato = 0;
 
+static int difficile = 0; /* 1 = modalita' difficile (scelta nel menu del titolo) */
+
+static int max_rilanci(void) { return difficile ? MAX_RILANCI_DIFF : MAX_RILANCI; }
+static int max_ritocchi(void) { return difficile ? MAX_RITOCCHI_DIFF : MAX_RITOCCHI; }
+
 enum { AZX_RILANCIA, AZX_PIU, AZX_MENO, AZX_DIFESA, AZX_TOGLI, AZX_ATTACCA };
 static const char *const NOME_VOCE[6] = {
 	"Rilancia", "Aumenta +1", "Diminuisci -1", "Metti in difesa",
@@ -254,7 +262,7 @@ static int vedi_ciclo = 0;
 
 /* ---------- STATO ---------- */
 static int iniziata = 0;
-static int titolo_voce = 0; /* 0 = Nuova Partita, 1 = Codex (nel menu del titolo) */
+static int titolo_voce = 0; /* 0 = Nuova Partita, 1 = Difficolta', 2 = Codex (menu del titolo) */
 static int codex = 0;       /* 1 = si sta sfogliando il Codex delle carte */
 static int codex_cursore = 0;
 static int vinto = 0;
@@ -335,7 +343,7 @@ static char lettera_stato(int i, int *col) {
 }
 
 static void ritocca(int delta) {
-	if (ritocchi_usati >= MAX_RITOCCHI) return;
+	if (ritocchi_usati >= max_ritocchi()) return;
 	if (stato_dado[selezionato] != 0) return;
 	if (rilanciato[selezionato] || ritoccato[selezionato]) return;
 	int nuovo = dadi[selezionato] + delta;
@@ -346,7 +354,7 @@ static void ritocca(int delta) {
 }
 
 static void rilancia(void) {
-	if (rilanci_usati >= MAX_RILANCI) return;
+	if (rilanci_usati >= max_rilanci()) return;
 	if (stato_dado[selezionato] != 0) return;
 	if (rilanciato[selezionato] || ritoccato[selezionato]) return;
 	dadi[selezionato] = tira_dado();
@@ -509,8 +517,8 @@ static void costruisci_menu(void) {
 		voci[n_voci++] = AZX_TOGLI;
 	} else if (s == 0) {
 		int intatto = !rilanciato[selezionato] && !ritoccato[selezionato];
-		if (intatto && rilanci_usati < MAX_RILANCI) voci[n_voci++] = AZX_RILANCIA;
-		if (intatto && ritocchi_usati < MAX_RITOCCHI) {
+		if (intatto && rilanci_usati < max_rilanci()) voci[n_voci++] = AZX_RILANCIA;
+		if (intatto && ritocchi_usati < max_ritocchi()) {
 			if (dadi[selezionato] < 6) voci[n_voci++] = AZX_PIU;
 			if (dadi[selezionato] > 1) voci[n_voci++] = AZX_MENO;
 		}
@@ -898,9 +906,9 @@ static void disegna_dadi(void) {
 				ui_testo(mx + 12, ry + 2, NOME_VOCE[voci[k]],
 				         k == voce_sel ? K_GIALLO : K_TESTO, 1);
 				switch (voci[k]) {
-				case AZX_RILANCIA: sprintf(cnt, "x%d", MAX_RILANCI - rilanci_usati); break;
+				case AZX_RILANCIA: sprintf(cnt, "x%d", max_rilanci() - rilanci_usati); break;
 				case AZX_PIU:
-				case AZX_MENO: sprintf(cnt, "x%d", MAX_RITOCCHI - ritocchi_usati); break;
+				case AZX_MENO: sprintf(cnt, "x%d", max_ritocchi() - ritocchi_usati); break;
 				case AZX_DIFESA: sprintf(cnt, "%d/%d", difesa_conta(), limite_difesa); break;
 				default: break;
 				}
@@ -1088,10 +1096,12 @@ static void disegna_codex(void) {
 
 static void disegna_pausa(void) {
 	static const char *const V[3] = {"Riprendi", "Riavvia partita", "Torna al titolo"};
-	ui_pannello(50, 40, 140, 68);
-	ui_testo_c(120, 46, "PAUSA", K_GIALLO, 2);
+	ui_pannello(50, 34, 140, 80);
+	ui_testo_c(120, 40, "PAUSA", K_GIALLO, 2);
+	ui_testo_c(120, 57, difficile ? "Modalita difficile" : "Modalita normale",
+	           difficile ? K_ROSSO : K_GRIGIO, 1);
 	for (int k = 0; k < 3; k++) {
-		int ry = 66 + k * 12;
+		int ry = 68 + k * 12;
 		if (k == voce_pausa) ui_riga_sel(55, ry, 130);
 		ui_testo(70, ry + 2, V[k], k == voce_pausa ? K_GIALLO : K_TESTO, 1);
 	}
@@ -1125,9 +1135,11 @@ static void disegna(void) {
 		if (codex) {
 			disegna_codex();
 		} else {
-			static const char *const VOCE_TITOLO[2] = {"Nuova Partita", "Codex"};
+			char voce_diff[32];
+			sprintf(voce_diff, "Difficolta: < %s >", difficile ? "Difficile" : "Normale");
+			const char *const VOCE_TITOLO[3] = {"Nuova Partita", voce_diff, "Codex"};
 
-			ui_pannello(14, 14, 212, 80);
+			ui_pannello(14, 14, 212, 92);
 
 			/* titolo in rilievo su due righe (ombra + luce + colore pieno) */
 			ui_testo_c(122, 26, "DOOM", K_OMBRA, 3);
@@ -1138,14 +1150,14 @@ static void disegna(void) {
 			ui_testo_c(119, 51, "MACHINE", K_LUCE, 2);
 			ui_testo_c(120, 52, "MACHINE", K_ROSSO, 2);
 
-			for (int k = 0; k < 2; k++) {
+			for (int k = 0; k < 3; k++) {
 				int ry = 68 + k * 11;
 				/* la barra luminosa e' larga quanto la scritta (piu' un
 				   margine), cosi' la ingloba sempre per intero */
 				int mw = ui_larghezza(VOCE_TITOLO[k], 1) + 18;
 				if (k == titolo_voce) ui_riga_sel(120 - mw / 2, ry, mw);
 				ui_testo_c(120, ry + 2, VOCE_TITOLO[k],
-				           k == titolo_voce ? K_GIALLO : K_TESTO, 1);
+				           k == titolo_voce ? K_GIALLO : (k == 1 && difficile ? K_ROSSO : K_TESTO), 1);
 			}
 
 			for (int i = 0; i < 4; i++) {
@@ -1158,6 +1170,7 @@ static void disegna(void) {
 		ui_pannello(40, 48, 160, 64);
 		ui_testo_c(120, 62, vinto ? "HAI VINTO!" : "HAI PERSO",
 		           vinto ? K_VERDE : K_ROSSO, 2);
+		if (difficile) ui_testo_c(120, 78, "Modalita difficile", K_ROSSO, 1);
 		ui_testo_c(120, 90, "START: nuova partita", K_TESTO, 1);
 	} else if (pausa) {
 		ui_hud();
@@ -1256,9 +1269,19 @@ int main(void) {
 					cambiato = 1;
 				}
 			} else {
-				if (premuti & (KEY_UP | KEY_DOWN)) {
-					titolo_voce = !titolo_voce;
+				if (premuti & KEY_UP) {
+					titolo_voce = (titolo_voce + 2) % 3;
 					SUONA(S_SU_GIU);
+					cambiato = 1;
+				}
+				if (premuti & KEY_DOWN) {
+					titolo_voce = (titolo_voce + 1) % 3;
+					SUONA(S_SU_GIU);
+					cambiato = 1;
+				}
+				if (titolo_voce == 1 && (premuti & (KEY_LEFT | KEY_RIGHT))) {
+					difficile = !difficile;
+					SUONA(S_SX_DX);
 					cambiato = 1;
 				}
 				if (premuti & KEY_START) {
@@ -1271,6 +1294,9 @@ int main(void) {
 						rng_seed(frame ^ 0xA5A5A5A5u);
 						nuova_partita();
 						SUONA(S_AVVIO);
+					} else if (titolo_voce == 1) {
+						difficile = !difficile;
+						SUONA(S_SX_DX);
 					} else {
 						codex = 1;
 						codex_cursore = 0;
