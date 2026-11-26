@@ -562,7 +562,7 @@ static void aggiorna_sprite(void) {
 	if (!iniziata) {
 		if (codex) {
 			int idx = (codex_cursore < N_POOL) ? codex_cursore : -1;
-			sprite_set(0, 188, 42, tile_carta(idx));
+			sprite_set(0, 191, 44, tile_carta(idx));
 		} else {
 			for (int i = 0; i < 4; i++) sprite_set(i, 38 + 44 * i, 108, tile_carta(i));
 		}
@@ -615,6 +615,44 @@ static void ui_casella(int x, int y, Casella c, int piena) {
 	ui_rett(x, y, 22, 11, piena ? K_VERDE : K_BARRA);
 	ui_cornice(x, y, 22, 11, K_ORO);
 	ui_testo_c(x + 11, y + 2, t, piena ? K_PANNELLO : K_TESTO, 1);
+}
+
+/* stampa un testo andando a capo (una volta sola) se non entra in maxw,
+   cosi' resta sempre dentro al riquadro; con centrato!=0 ogni riga viene
+   centrata su x, altrimenti x e' il margine sinistro. Ritorna la y della
+   riga successiva libera. */
+static int ui_testo_wrap(int x, int y, int maxw, const char *s, int c, int scala, int centrato) {
+	if (ui_larghezza(s, scala) <= maxw) {
+		if (centrato) ui_testo_c(x, y, s, c, scala); else ui_testo(x, y, s, c, scala);
+		return y + 8 * scala;
+	}
+	int n = (int)strlen(s);
+	int taglio = -1;
+	for (int i = 1; i < n; i++) {
+		if (s[i] != ' ') continue;
+		char riga[48];
+		int len = i < 47 ? i : 47;
+		memcpy(riga, s, len);
+		riga[len] = 0;
+		if (ui_larghezza(riga, scala) <= maxw) taglio = i;
+		else break;
+	}
+	if (taglio < 0) {
+		if (centrato) ui_testo_c(x, y, s, c, scala); else ui_testo(x, y, s, c, scala);
+		return y + 8 * scala;
+	}
+	char riga[48];
+	int len = taglio < 47 ? taglio : 47;
+	memcpy(riga, s, len);
+	riga[len] = 0;
+	if (centrato) {
+		ui_testo_c(x, y, riga, c, scala);
+		ui_testo_c(x, y + 8 * scala, s + taglio + 1, c, scala);
+	} else {
+		ui_testo(x, y, riga, c, scala);
+		ui_testo(x, y + 8 * scala, s + taglio + 1, c, scala);
+	}
+	return y + 16 * scala;
 }
 
 /* riquadro dei comandi, piu' piccolo e compatto */
@@ -854,34 +892,39 @@ static void disegna_carte(void) {
 /* Codex: scheda consultabile di tutte le carte del gioco (pool + Nucleo),
    con artwork a lato (disegnato come sprite da aggiorna_sprite) */
 static void disegna_codex(void) {
-	char b[32];
+	char b[48];
 	int idx = (codex_cursore < N_POOL) ? codex_cursore : -1;
 	const Carta *c = prendi(idx);
+	const int px = 4, pw = 168;
+	const int cx = px + pw / 2;
+	const int maxw = pw - 16;
 
-	ui_pannello(4, 10, 160, 130);
-	ui_testo(10, 14, c->nome, K_GIALLO, 1);
+	ui_pannello(px, 10, pw, 130);
+
 	sprintf(b, "%d/%d", codex_cursore + 1, N_MAZZO);
-	ui_testo_d(158, 14, b, K_GRIGIO, 1);
+	ui_testo_d(px + pw - 6, 13, b, K_GRIGIO, 1);
+	ui_testo_c(cx, 13, c->nome, K_GIALLO, 1);
 
 	sprintf(b, "PV %d", c->pv);
-	ui_testo(10, 26, b, K_TESTO, 1);
+	ui_testo_c(cx, 24, b, K_TESTO, 1);
 
-	ui_testo(10, 38, "Servono", K_GRIGIO, 1);
-	for (int k = 0; k < c->n_cas; k++) {
-		ui_casella(60 + 26 * k, 36, c->cas[k], 0);
+	ui_testo_c(cx, 35, "Servono", K_GRIGIO, 1);
+	{
+		int larg = c->n_cas * 26 - 4;
+		int sx = cx - larg / 2;
+		for (int k = 0; k < c->n_cas; k++) {
+			ui_casella(sx + 26 * k, 44, c->cas[k], 0);
+		}
 	}
 
-	ui_testo(10, 52, "Ciclo", K_GRIGIO, 1);
-	int ry = 0;
+	ui_testo_c(cx, 59, "Ciclo", K_GRIGIO, 1);
+	int ry = 70;
 	for (int i = 0; i < c->n_az; i++) {
-		ry = 63 + i * 10;
-		char s[2] = {LETTERE[i], 0};
-		ui_testo(10, ry, s, K_GIALLO, 1);
-		ui_testo(22, ry, azione_desc(c->az[i]), K_TESTO, 1);
+		sprintf(b, "%c: %s", LETTERE[i], azione_desc(c->az[i]));
+		ry = ui_testo_wrap(cx, ry, maxw, b, K_GIALLO, 1, 1);
 	}
 
 	if (c->on_morte != OM_NESSUNA) {
-		ry += 12;
 		if (c->on_morte == OM_DANNO_SX) {
 			sprintf(b, "Alla morte: %d danni a sx", c->om_val);
 		} else if (c->on_morte == OM_DANNO_TUTTI) {
@@ -889,10 +932,10 @@ static void disegna_codex(void) {
 		} else {
 			sprintf(b, "Alla morte: -%d Potere/Sentenza", c->om_val);
 		}
-		ui_testo(10, ry, b, K_ROSSO, 1);
+		ui_testo_wrap(cx, ry + 1, maxw, b, K_ROSSO, 1, 1);
 	}
 
-	ui_pannello(168, 10, 68, 100);
+	ui_pannello(178, 10, 58, 100);
 
 	ui_suggerimenti("Sx/Dx carta  B indietro", "");
 }
@@ -951,9 +994,12 @@ static void disegna(void) {
 
 			for (int k = 0; k < 2; k++) {
 				int ry = 68 + k * 11;
-				if (k == titolo_voce) ui_riga_sel(80, ry, 80);
-				ui_testo(95, ry + 2, VOCE_TITOLO[k],
-				         k == titolo_voce ? K_GIALLO : K_TESTO, 1);
+				/* la barra luminosa e' larga quanto la scritta (piu' un
+				   margine), cosi' la ingloba sempre per intero */
+				int mw = ui_larghezza(VOCE_TITOLO[k], 1) + 18;
+				if (k == titolo_voce) ui_riga_sel(120 - mw / 2, ry, mw);
+				ui_testo_c(120, ry + 2, VOCE_TITOLO[k],
+				           k == titolo_voce ? K_GIALLO : K_TESTO, 1);
 			}
 
 			for (int i = 0; i < 4; i++) {
