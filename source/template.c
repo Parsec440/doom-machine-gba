@@ -217,6 +217,9 @@ static int vedi_ciclo = 0;
 
 /* ---------- STATO ---------- */
 static int iniziata = 0;
+static int titolo_voce = 0; /* 0 = Nuova Partita, 1 = Codex (nel menu del titolo) */
+static int codex = 0;       /* 1 = si sta sfogliando il Codex delle carte */
+static int codex_cursore = 0;
 static int vinto = 0;
 static int perso = 0;
 static int pausa = 0;
@@ -535,7 +538,12 @@ static void aggiorna_sprite(void) {
 	for (int s = 0; s < SLOT_SPRITE + MAX_DADI; s++) sprite_nascondi(s);
 
 	if (!iniziata) {
-		for (int i = 0; i < 4; i++) sprite_set(i, 38 + 44 * i, 108, tile_carta(i));
+		if (codex) {
+			int idx = (codex_cursore < N_POOL) ? codex_cursore : -1;
+			sprite_set(0, 188, 42, tile_carta(idx));
+		} else {
+			for (int i = 0; i < 4; i++) sprite_set(i, 38 + 44 * i, 108, tile_carta(i));
+		}
 		return;
 	}
 	if (vinto || perso) return;
@@ -828,6 +836,52 @@ static void disegna_carte(void) {
 	}
 }
 
+/* Codex: scheda consultabile di tutte le carte del gioco (pool + Nucleo),
+   con artwork a lato (disegnato come sprite da aggiorna_sprite) */
+static void disegna_codex(void) {
+	char b[32];
+	int idx = (codex_cursore < N_POOL) ? codex_cursore : -1;
+	const Carta *c = prendi(idx);
+
+	ui_pannello(4, 10, 160, 130);
+	ui_testo(10, 14, c->nome, K_GIALLO, 1);
+	sprintf(b, "%d/%d", codex_cursore + 1, N_MAZZO);
+	ui_testo_d(158, 14, b, K_GRIGIO, 1);
+
+	sprintf(b, "PV %d", c->pv);
+	ui_testo(10, 26, b, K_TESTO, 1);
+
+	ui_testo(10, 38, "Servono", K_GRIGIO, 1);
+	for (int k = 0; k < c->n_cas; k++) {
+		ui_casella(60 + 26 * k, 36, c->cas[k], 0);
+	}
+
+	ui_testo(10, 52, "Ciclo", K_GRIGIO, 1);
+	int ry = 0;
+	for (int i = 0; i < c->n_az; i++) {
+		ry = 63 + i * 10;
+		char s[2] = {LETTERE[i], 0};
+		ui_testo(10, ry, s, K_GIALLO, 1);
+		ui_testo(22, ry, azione_desc(c->az[i]), K_TESTO, 1);
+	}
+
+	if (c->on_morte != OM_NESSUNA) {
+		ry += 12;
+		if (c->on_morte == OM_DANNO_SX) {
+			sprintf(b, "Alla morte: %d danni a sx", c->om_val);
+		} else if (c->on_morte == OM_DANNO_TUTTI) {
+			sprintf(b, "Alla morte: %d danni a tutti", c->om_val);
+		} else {
+			sprintf(b, "Alla morte: -%d Potere/Sentenza", c->om_val);
+		}
+		ui_testo(10, ry, b, K_ROSSO, 1);
+	}
+
+	ui_pannello(168, 10, 68, 100);
+
+	ui_suggerimenti("Sx/Dx carta  B indietro", "");
+}
+
 static void disegna_pausa(void) {
 	static const char *const V[3] = {"Riprendi", "Riavvia partita", "Torna al titolo"};
 	ui_pannello(50, 40, 140, 68);
@@ -864,23 +918,34 @@ static void disegna(void) {
 	ui_pulisci();
 
 	if (!iniziata) {
-		ui_pannello(14, 14, 212, 80);
+		if (codex) {
+			disegna_codex();
+		} else {
+			static const char *const VOCE_TITOLO[2] = {"Nuova Partita", "Codex"};
 
-		/* titolo in rilievo su due righe (ombra + luce + colore pieno) */
-		ui_testo_c(122, 26, "DOOM", K_OMBRA, 3);
-		ui_testo_c(118, 22, "DOOM", K_LUCE, 3);
-		ui_testo_c(120, 24, "DOOM", K_GIALLO, 3);
+			ui_pannello(14, 14, 212, 80);
 
-		ui_testo_c(121, 53, "MACHINE", K_OMBRA, 2);
-		ui_testo_c(119, 51, "MACHINE", K_LUCE, 2);
-		ui_testo_c(120, 52, "MACHINE", K_ROSSO, 2);
+			/* titolo in rilievo su due righe (ombra + luce + colore pieno) */
+			ui_testo_c(122, 26, "DOOM", K_OMBRA, 3);
+			ui_testo_c(118, 22, "DOOM", K_LUCE, 3);
+			ui_testo_c(120, 24, "DOOM", K_GIALLO, 3);
 
-		ui_testo_c(120, 80, "Premi START per iniziare", K_TESTO, 1);
+			ui_testo_c(121, 53, "MACHINE", K_OMBRA, 2);
+			ui_testo_c(119, 51, "MACHINE", K_LUCE, 2);
+			ui_testo_c(120, 52, "MACHINE", K_ROSSO, 2);
 
-		for (int i = 0; i < 4; i++) {
-			int cx = 38 + 44 * i + 16;
-			ui_pannello(cx - 21, 139, 42, 15);
-			ui_testo_c(cx, 143, ANTEPRIMA[i], K_TESTO, 1);
+			for (int k = 0; k < 2; k++) {
+				int ry = 68 + k * 11;
+				if (k == titolo_voce) ui_riga_sel(80, ry, 80);
+				ui_testo(95, ry + 2, VOCE_TITOLO[k],
+				         k == titolo_voce ? K_GIALLO : K_TESTO, 1);
+			}
+
+			for (int i = 0; i < 4; i++) {
+				int cx = 38 + 44 * i + 16;
+				ui_pannello(cx - 21, 139, 42, 15);
+				ui_testo_c(cx, 143, ANTEPRIMA[i], K_TESTO, 1);
+			}
 		}
 	} else if (vinto || perso) {
 		ui_pannello(40, 48, 160, 64);
@@ -965,11 +1030,45 @@ int main(void) {
 		int cambiato = 0;
 
 		if (!iniziata) {
-			if (premuti & KEY_START) {
-				rng_seed(frame ^ 0xA5A5A5A5u);
-				nuova_partita();
-				SUONA(S_AVVIO);
-				cambiato = 1;
+			if (codex) {
+				if (premuti & (KEY_LEFT | KEY_UP)) {
+					codex_cursore = (codex_cursore + N_MAZZO - 1) % N_MAZZO;
+					SUONA(S_SX_DX);
+					cambiato = 1;
+				}
+				if (premuti & (KEY_RIGHT | KEY_DOWN)) {
+					codex_cursore = (codex_cursore + 1) % N_MAZZO;
+					SUONA(S_SX_DX);
+					cambiato = 1;
+				}
+				if (premuti & (KEY_B | KEY_SELECT)) {
+					codex = 0;
+					SUONA(S_INDIETRO);
+					cambiato = 1;
+				}
+			} else {
+				if (premuti & (KEY_UP | KEY_DOWN)) {
+					titolo_voce = !titolo_voce;
+					SUONA(S_SU_GIU);
+					cambiato = 1;
+				}
+				if (premuti & KEY_START) {
+					rng_seed(frame ^ 0xA5A5A5A5u);
+					nuova_partita();
+					SUONA(S_AVVIO);
+					cambiato = 1;
+				} else if (premuti & KEY_A) {
+					if (titolo_voce == 0) {
+						rng_seed(frame ^ 0xA5A5A5A5u);
+						nuova_partita();
+						SUONA(S_AVVIO);
+					} else {
+						codex = 1;
+						codex_cursore = 0;
+						SUONA(S_OK);
+					}
+					cambiato = 1;
+				}
 			}
 			if (cambiato) disegna();
 			continue;
