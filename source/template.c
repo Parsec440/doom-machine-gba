@@ -65,6 +65,8 @@ typedef enum {
 	AZ_RIPARA_ADIACENTI, /* ripara az.val PV alle carte adiacenti sul campo */
 	AZ_DANNO_SOGLIA_SENTENZA, /* danno 3, o 5 se la Sentenza supera 5 */
 	AZ_RIPARA_SE,     /* la carta ripara az.val PV a se stessa (fino al massimo) */
+	AZ_DANNO_CARTE,   /* danno pari al numero di carte in campo */
+	AZ_BLOCCA_DADO,   /* il turno successivo si tira un dado in meno */
 } TipoAzione;
 typedef struct {
 	TipoAzione tipo;
@@ -73,7 +75,8 @@ typedef struct {
 
 /* effetto scatenato quando la carta viene sconfitta */
 typedef enum { OM_NESSUNA, OM_DANNO_SX, OM_DANNO_TUTTI, OM_RIDUCI_PS,
-               OM_CARICA_POT /* Potere +om_val */ } OnMorte;
+               OM_CARICA_POT, /* Potere +om_val */
+               OM_RIDUCI_POT /* Potere -om_val */ } OnMorte;
 
 typedef struct {
 	const char *nome;
@@ -113,8 +116,15 @@ static const Carta POOL[] = {
 	 OM_CARICA_POT, 2},
 	{"Populace Grinder", 3, 2, {{'=', 3}, {'=', 3}}, 3,
 	 {{AZ_NULLA}, {AZ_DANNO_FISSO, 4}, {AZ_RIPARA_SE, 3}}},
+	{"Impact Nexus", 4, 2, {{'~', 0, 0}, {'~', 0, 0}}, 2,
+	 {{AZ_NULLA}, {AZ_DANNO_CARTE}},
+	 OM_RIDUCI_POT, 1},
+	/* '+': val = ruolo (0 e 1 = addendi, 2 = somma); il terzo dado deve
+	   valere la somma dei primi due */
+	{"Soul Harvester", 3, 3, {{'+', 0}, {'+', 1}, {'+', 2}}, 4,
+	 {{AZ_NULLA}, {AZ_DANNO_FISSO, 5}, {AZ_BLOCCA_DADO}, {AZ_DANNO_FISSO, 5}}},
 };
-#define N_POOL 11
+#define N_POOL 13
 static const Carta NUCLEO = {"Doom Core", 4, 3, {{'=', 6}, {'=', 6}, {'=', 6}}, 4,
                               {{AZ_NULLA}, {AZ_DANNO_SP}, {AZ_CARICA_SP}, {AZ_CARICA_SP}}};
 #define N_MAZZO (N_POOL + 1)
@@ -132,6 +142,7 @@ static int tile_carta(int idx) {
 static int casella_ok(Casella c, int v) {
 	if (c.tipo == '=') return v == c.val;
 	if (c.tipo == 'o') return v == c.val || v == c.val2;
+	if (c.tipo == '+') return 1; /* addendi e somma si controllano in assegna() */
 	if (c.tipo == '~') return 1; /* "due dadi uguali": qualunque valore va bene qui,
 	                                 il vincolo (uguale all'altro '~') si controlla in assegna() */
 	return v > c.val;
@@ -159,6 +170,8 @@ static const char *azione_desc(Azione a) {
 	case AZ_RIPARA_ADIACENTI: sprintf(buf, "Ripara %d PV adiacenti", a.val); return buf;
 	case AZ_DANNO_SOGLIA_SENTENZA: return "Danno 3 (5 se Sentenza > 5)";
 	case AZ_RIPARA_SE: sprintf(buf, "Auto-ripara %d PV", a.val); return buf;
+	case AZ_DANNO_CARTE: return "Danno = carte in campo";
+	case AZ_BLOCCA_DADO: return "Blocca 1 dado (prox turno)";
 	}
 	return "";
 }
@@ -258,6 +271,17 @@ static int dado_in[MAX_CAS];
 static int limite_difesa = MAX_DIFESA;
 static int prossimo_limite_1 = 0;
 
+/* dadi bloccati: il turno dopo "Soul Harvester" si tira un dado in meno.
+   prossimo_blocco si accumula durante il turno nemico e diventa
+   dadi_bloccati quando inizia il turno successivo. */
+static int dadi_bloccati = 0;
+static int prossimo_blocco = 0;
+
+static int dadi_disponibili(void) {
+	int n = n_dadi - dadi_bloccati;
+	return n < 1 ? 1 : n;
+}
+
 static int dado_x(int i, int q) {
 	return (SCHERMO_W - (q * 22 - 6)) / 2 + 22 * i;
 }
@@ -330,7 +354,7 @@ static void togli_difesa(void) {
 }
 
 static void tira(void) {
-	n_attivi = n_dadi;
+	n_attivi = dadi_disponibili();
 	for (int i = 0; i < n_attivi; i++) {
 		dadi[i] = tira_dado();
 		rilanciato[i] = 0;
@@ -365,6 +389,9 @@ static void sconfitta(int i) {
 		if (sentenza < 0) sentenza = 0;
 	} else if (c->on_morte == OM_CARICA_POT) {
 		potere += c->om_val;
+	} else if (c->on_morte == OM_RIDUCI_POT) {
+		potere -= c->om_val;
+		if (potere < 0) potere = 0;
 	}
 
 	for (int j = i; j < n_campo - 1; j++) {
@@ -415,6 +442,23 @@ static int assegna(void) {
 						}
 					}
 					if (!combacia) continue;
+				}
+				if (c->cas[k].tipo == '+') {
+					/* i primi due dadi sono gli addendi, il terzo deve
+					   valere la loro somma (e restare un dado valido) */
+					int ruolo = c->cas[k].val;
+					int a = -1, b = -1;
+					for (int m = 0; m < c->n_cas; m++) {
+						if (c->cas[m].tipo != '+' || !riempita[m]) continue;
+						if (c->cas[m].val == 0) a = dadi[dado_in[m]];
+						if (c->cas[m].val == 1) b = dadi[dado_in[m]];
+					}
+					int v = dadi[d];
+					int ok;
+					if (ruolo == 2) ok = (a >= 0 && b >= 0 && v == a + b);
+					else if (ruolo == 0) ok = (v <= 5 && (b < 0 || v + b <= 6));
+					else ok = (v <= 5 && (a < 0 || v + a <= 6));
+					if (!ok) continue;
 				}
 				riempita[k] = 1;
 				dado_in[k] = d;
@@ -526,6 +570,8 @@ static void turno_nemici(void) {
 			break;
 		}
 		case AZ_DANNO_SOGLIA_SENTENZA: danno += (sentenza > 5) ? 5 : 3; break;
+		case AZ_DANNO_CARTE: danno += n_campo; break;
+		case AZ_BLOCCA_DADO: prossimo_blocco++; break;
 		case AZ_RIPARA_SE:
 			pv_campo[i] += c->az[pos].val;
 			if (pv_campo[i] > c->pv) pv_campo[i] = c->pv;
@@ -546,6 +592,8 @@ static void fine_turno(void) {
 	turno_nemici();
 	limite_difesa = prossimo_limite_1 ? 1 : MAX_DIFESA;
 	prossimo_limite_1 = 0;
+	dadi_bloccati = prossimo_blocco;
+	prossimo_blocco = 0;
 	tirato = 0;
 	turno++;
 	for (int i = 0; i < n_campo; i++) eta_campo[i]++;
@@ -602,7 +650,7 @@ static void aggiorna_sprite(void) {
 		}
 	} else {
 		if (attacco) sprite_set(0, 28, 40, tile_carta(campo[bersaglio]));
-		int q = tirato ? n_attivi : n_dadi;
+		int q = tirato ? n_attivi : dadi_disponibili();
 		for (int i = 0; i < q; i++) {
 			int x = dado_x(i, q);
 			int y = DADO_Y;
@@ -621,6 +669,7 @@ static void ui_casella(int x, int y, Casella c, int piena) {
 	if (c.tipo == '=') sprintf(t, "%d", c.val);
 	else if (c.tipo == 'o') sprintf(t, "%d/%d", c.val, c.val2);
 	else if (c.tipo == '~') sprintf(t, "##");
+	else if (c.tipo == '+') strcpy(t, c.val == 2 ? "a+b" : (c.val == 1 ? "b" : "a"));
 	else sprintf(t, ">%d", c.val);
 	ui_rett(x, y, 22, 11, piena ? K_VERDE : K_BARRA);
 	ui_cornice(x, y, 22, 11, K_ORO);
@@ -707,7 +756,8 @@ static void ui_hud(void) {
 	ui_barra(84, 5, 60, 7, pv_giocatore, PV_GIOCATORE, K_ROSSO);
 	sprintf(b, "%d/%d", pv_giocatore < 0 ? 0 : pv_giocatore, PV_GIOCATORE);
 	ui_testo(150, 5, b, K_TESTO, 1);
-	sprintf(b, "DADI %d", n_dadi);
+	if (dadi_bloccati > 0) sprintf(b, "DADI %d -%d", n_dadi, dadi_bloccati);
+	else sprintf(b, "DADI %d", n_dadi);
 	ui_testo_d(232, 5, b, K_TESTO, 1);
 
 	sprintf(b, "DIFESA %d", difesa_somma());
@@ -716,7 +766,7 @@ static void ui_hud(void) {
 
 static void disegna_dadi(void) {
 	char b[64];
-	int q = tirato ? n_attivi : n_dadi;
+	int q = tirato ? n_attivi : dadi_disponibili();
 
 	if (!attacco && turno > 1) {
 		if (ultimo_danno > 0) {
@@ -731,9 +781,14 @@ static void disegna_dadi(void) {
 	}
 
 	if (!tirato) {
-		ui_pannello(60, 58, 120, 26);
+		ui_pannello(60, 58, 120, dadi_bloccati > 0 ? 36 : 26);
 		ui_testo_c(120, 64, "Tira i dadi", K_GIALLO, 1);
 		ui_testo_c(120, 74, "premi A", K_TESTO, 1);
+		if (dadi_bloccati > 0) {
+			sprintf(b, dadi_bloccati == 1 ? "%d dado bloccato" : "%d dadi bloccati",
+			        dadi_bloccati);
+			ui_testo_c(120, 84, b, K_ROSSO, 1);
+		}
 	}
 
 	if (attacco) {
@@ -941,6 +996,8 @@ static void disegna_codex(void) {
 			sprintf(b, "Alla morte: %d danni a tutti", c->om_val);
 		} else if (c->on_morte == OM_CARICA_POT) {
 			sprintf(b, "Alla morte: Potere +%d", c->om_val);
+		} else if (c->on_morte == OM_RIDUCI_POT) {
+			sprintf(b, "Alla morte: Potere -%d", c->om_val);
 		} else {
 			sprintf(b, "Alla morte: -%d Potere/Sentenza", c->om_val);
 		}
@@ -1074,6 +1131,8 @@ static void nuova_partita(void) {
 	ultima_difesa = 0;
 	limite_difesa = MAX_DIFESA;
 	prossimo_limite_1 = 0;
+	dadi_bloccati = 0;
+	prossimo_blocco = 0;
 }
 
 int main(void) {
