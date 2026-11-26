@@ -2,6 +2,7 @@
 #define GRAFICA_H
 
 #define N_ARTI 9
+#include "doom_cards.h"
 #define COL5(r, g, b) ((r) | ((g) << 5) | ((b) << 10))
 
 /* palette delle carte (banco 0) */
@@ -99,6 +100,33 @@ static void disegna_core(void) {
 	cornice_tela();
 }
 
+/* Sprite disegnati a mano (doom_cards.h): slot della carta nel POOL
+   (il Nucleo e' l'ultimo slot, N_ARTI - 1) e banco palette dedicato.
+   Il banco 0 e' la palette delle carte disegnate nel codice, 1-6 i dadi. */
+#define ARTE_COLLIDER 4  /* Extinction Collider */
+#define ARTE_SYNAPTIC 6  /* Synaptic Disruptor */
+#define ARTE_CORE (N_ARTI - 1) /* Doom Core */
+#define BANCO_CORE 7
+#define BANCO_SYNAPTIC 8
+#define BANCO_COLLIDER 9
+
+static int banco_carta(int slot) {
+	if (slot == ARTE_CORE) return BANCO_CORE;
+	if (slot == ARTE_SYNAPTIC) return BANCO_SYNAPTIC;
+	if (slot == ARTE_COLLIDER) return BANCO_COLLIDER;
+	return 0;
+}
+
+/* copia nella VRAM i 16 tile (32x32, 4bpp) di una carta e la sua palette */
+static void carica_arte(int slot, const unsigned int *tiles, const unsigned short *pal16) {
+	volatile unsigned short *pal = (volatile unsigned short *)0x05000200;
+	volatile unsigned int *vram = (volatile unsigned int *)0x06010000;
+	int banco = banco_carta(slot);
+
+	for (int i = 0; i < 16; i++) pal[banco * 16 + i] = pal16[i];
+	for (int i = 0; i < CARD_TILE_COUNT * 8; i++) vram[slot * 16 * 8 + i] = tiles[i];
+}
+
 /* copia palette e tile delle carte nella memoria video */
 static void carica_grafica(void) {
 	volatile unsigned short *pal = (volatile unsigned short *)0x05000200;
@@ -126,6 +154,10 @@ static void carica_grafica(void) {
 			}
 		}
 	}
+
+	carica_arte(ARTE_COLLIDER, extinction_collider_tiles, extinction_collider_pal);
+	carica_arte(ARTE_SYNAPTIC, synaptic_disruptor_tiles, synaptic_disruptor_pal);
+	carica_arte(ARTE_CORE, doom_core_tiles, doom_core_pal);
 }
 
 static void sprite_nascondi(int slot) {

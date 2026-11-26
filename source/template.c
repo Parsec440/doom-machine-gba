@@ -109,13 +109,15 @@ static const Carta POOL[] = {
 static const Carta NUCLEO = {"Doom Core", 4, 3, {{'=', 6}, {'=', 6}, {'=', 6}}, 4,
                               {{AZ_NULLA}, {AZ_DANNO_SP}, {AZ_CARICA_SP}, {AZ_CARICA_SP}}};
 #define N_MAZZO (N_POOL + 1)
+_Static_assert(N_ARTI == N_MAZZO, "N_ARTI (grafica.h) deve essere N_POOL + 1");
 
 static const Carta *prendi(int idx) {
 	return idx < 0 ? &NUCLEO : &POOL[idx];
 }
 
 static int tile_carta(int idx) {
-	return (idx < 0 ? N_POOL : idx) * 16;
+	int slot = (idx < 0 ? N_POOL : idx);
+	return slot * 16 | (banco_carta(slot) << 12);
 }
 
 static int casella_ok(Casella c, int v) {

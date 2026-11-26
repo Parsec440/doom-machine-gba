@@ -3,7 +3,8 @@
 
 #include "grafica.h"
 
-#define TILE_DADI 96
+/* subito dopo i tile delle carte (N_ARTI * 16), cosi' non si sovrappongono */
+#define TILE_DADI (N_ARTI * 16)
 
 static const unsigned short MASCHERE_DADO[7] = {
 	0,
