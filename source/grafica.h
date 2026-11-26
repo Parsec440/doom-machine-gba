@@ -1,7 +1,7 @@
 #ifndef GRAFICA_H
 #define GRAFICA_H
 
-#define N_ARTI 13
+#define N_ARTI 9
 #define COL5(r, g, b) ((r) | ((g) << 5) | ((b) << 10))
 
 /* palette delle carte (banco 0) */
@@ -58,57 +58,6 @@ static void cornice_tela(void) {
 	}
 }
 
-/* Scrap Sentinel: torretta corazzata con antenna e occhio rosso */
-static void disegna_sentinella(void) {
-	for (int y = 0; y < 32; y++) for (int x = 0; x < 32; x++) cv[y][x] = 1;
-	cv_rett(14, 4, 4, 10, 4);
-	cv_px(16, 4, 7);
-	cv_ell(32, 40, 24, 22, 4);
-	cv_ell(32, 40, 20, 18, 5);
-	cv_rett(8, 34, 16, 8, 6);
-	cv_ell(32, 44, 10, 10, 4);
-	cv_ell(32, 44, 6, 6, 7);
-	cv_rett(10, 52, 6, 6, 13);
-	cv_rett(48, 52, 6, 6, 13);
-	cornice_tela();
-}
-
-/* Frost Relay: pannello col cristallo di ghiaccio */
-static void disegna_relay(void) {
-	for (int y = 0; y < 32; y++) for (int x = 0; x < 32; x++) cv[y][x] = 1;
-	cv_ell(32, 32, 26, 26, 4);
-	cv_ell(32, 32, 22, 22, 2);
-	cv_ell(32, 32, 16, 16, 5);
-	cv_rett(14, 8, 4, 18, 10);
-	cv_rett(16, 4, 4, 10, 3);
-	cv_rett(29, 18, 4, 20, 10);
-	cv_px(16, 8, 3);
-	cornice_tela();
-}
-
-/* Gilt Capacitor: cilindro dorato a fasce */
-static void disegna_capacitore(void) {
-	for (int y = 0; y < 32; y++) for (int x = 0; x < 32; x++) cv[y][x] = 1;
-	cv_rett(9, 6, 14, 24, 4);
-	cv_rett(10, 7, 12, 22, 8);
-	cv_rett(10, 11, 12, 3, 6);
-	cv_rett(10, 17, 12, 3, 6);
-	cv_rett(10, 23, 12, 3, 6);
-	cv_ell(32, 14, 12, 8, 9);
-	cornice_tela();
-}
-
-/* Coolant Drip: goccia di refrigerante azzurra */
-static void disegna_goccia(void) {
-	for (int y = 0; y < 32; y++) for (int x = 0; x < 32; x++) cv[y][x] = 1;
-	cv_ell(32, 44, 20, 18, 4);
-	cv_ell(32, 44, 16, 14, 14);
-	cv_ell(26, 36, 5, 5, 3);
-	cv_rett(14, 6, 4, 20, 5);
-	cv_rett(15, 7, 2, 18, 13);
-	cornice_tela();
-}
-
 /* Misery Extractor: trivella/artiglio viola con nucleo rosso */
 static void disegna_estrattore(void) {
 	for (int y = 0; y < 32; y++) for (int x = 0; x < 32; x++) cv[y][x] = 1;
@@ -159,12 +108,8 @@ static void carica_grafica(void) {
 
 	for (int c = 0; c < N_ARTI; c++) {
 		switch (c) {
-		case 0: disegna_sentinella(); break;
-		case 1: disegna_relay(); break;
-		case 2: disegna_capacitore(); break;
-		case 3: disegna_goccia(); break;
-		case 4: disegna_estrattore(); break;
-		case 5: disegna_complesso(); break;
+		case 0: disegna_estrattore(); break;
+		case 1: disegna_complesso(); break;
 		default: disegna_core(); break;
 		}
 

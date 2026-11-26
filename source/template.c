@@ -85,14 +85,6 @@ typedef struct {
 } Carta;
 
 static const Carta POOL[] = {
-	{"Scrap Sentinel", 3, 2, {{'=', 6}, {'=', 6}}, 2,
-	 {{AZ_NULLA}, {AZ_DANNO_SP}}},
-	{"Frost Relay", 3, 2, {{'=', 2}, {'=', 3}}, 3,
-	 {{AZ_NULLA}, {AZ_CARICA_SP}, {AZ_DANNO_SP}}},
-	{"Gilt Capacitor", 4, 2, {{'=', 3}, {'>', 3}}, 3,
-	 {{AZ_NULLA}, {AZ_CARICA_SP}, {AZ_CARICA_SP}}},
-	{"Coolant Drip", 2, 1, {{'>', 4}}, 4,
-	 {{AZ_NULLA}, {AZ_CARICA_SP}, {AZ_DANNO_SP}, {AZ_CARICA_SP}}},
 	{"Misery Extractor", 6, 2, {{'=', 2}, {'=', 3}}, 4,
 	 {{AZ_NULLA}, {AZ_DANNO_SX}, {AZ_DANNO_SX}, {AZ_DANNO_SX}},
 	 OM_DANNO_SX, 2},
@@ -113,7 +105,7 @@ static const Carta POOL[] = {
 	{"Cerebral Amplifier", 4, 1, {{'~', 0, 0}}, 3,
 	 {{AZ_NULLA}, {AZ_DANNO_SOGLIA_SENTENZA}, {AZ_DANNO_SOGLIA_SENTENZA}}},
 };
-#define N_POOL 12
+#define N_POOL 8
 static const Carta NUCLEO = {"Doom Core", 4, 3, {{'=', 6}, {'=', 6}, {'=', 6}}, 4,
                               {{AZ_NULLA}, {AZ_DANNO_SP}, {AZ_CARICA_SP}, {AZ_CARICA_SP}}};
 #define N_MAZZO (N_POOL + 1)
@@ -138,7 +130,7 @@ static const char LETTERE[] = "ABCDEF";
 
 /* etichette brevi per l'anteprima nella schermata del titolo: restano
    dentro al riquadro invece di sconfinare come i nomi completi */
-static const char *const ANTEPRIMA[4] = {"Sentinel", "Relay", "Capacitor", "Drip"};
+static const char *const ANTEPRIMA[4] = {"Misery", "Complex", "Flaw", "Siphon"};
 
 static const char *azione_desc(Azione a) {
 	static char buf[24];
