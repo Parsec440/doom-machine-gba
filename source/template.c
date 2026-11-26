@@ -107,7 +107,7 @@ static const Carta POOL[] = {
 	 {{AZ_NULLA}, {AZ_DANNO_FISSO, 4}, {AZ_DANNO_FISSO, 4}, {AZ_RIPARA_ADIACENTI, 2}, {AZ_DANNO_FISSO, 4}}},
 	{"Synaptic Disruptor", 4, 1, {{'o', 4, 5}}, 3,
 	 {{AZ_NULLA}, {AZ_CARICA_SENTENZA}, {AZ_DANNO_SENTENZA}}},
-	{"Cerebral Amplifier", 4, 1, {{'~', 0, 0}}, 3,
+	{"Cerebral Amplifier", 4, 2, {{'~', 0, 0}, {'~', 0, 0}}, 3,
 	 {{AZ_NULLA}, {AZ_DANNO_SOGLIA_SENTENZA}, {AZ_DANNO_SOGLIA_SENTENZA}}},
 	{"Pulse Pool", 3, 2, {{'=', 6}, {'=', 1}}, 4,
 	 {{AZ_NULLA}, {AZ_CARICA_POT}, {AZ_CARICA_POT}, {AZ_DANNO_FISSO, 3}}},
