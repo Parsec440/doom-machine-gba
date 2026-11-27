@@ -10,6 +10,7 @@
 #include "grafica_tavolo.h"
 #include "ui.h"
 #include "audio.h"
+#include "transizione.h"
 
 #define MAX_DADI 10
 #define MAX_RILANCI 3
@@ -1121,8 +1122,7 @@ static void disegna_conferma(void) {
 	ui_aiuto("A|conferma;B|annulla");
 }
 
-static void disegna(void) {
-	aggiorna_sprite();
+static void disegna_pannelli(void) {
 	ui_pulisci();
 
 	if (!iniziata) {
@@ -1175,7 +1175,45 @@ static void disegna(void) {
 		else disegna_carte();
 	}
 
-	ui_carica();
+}
+
+_Static_assert(SLOT_SPRITE + MAX_DADI <= TR_SPRITE, "TR_SPRITE troppo piccolo");
+
+/* schermata corrente (0 titolo, 1 codex, 2 dadi, 3 carte, 4 ciclo, 6 fine
+   partita, 9 riquadri sovrapposti come pausa e conferma) */
+static int schermata_id(void) {
+	if (!iniziata) return codex ? 1 : 0;
+	if (vinto || perso) return 6;
+	if (pausa || conferma) return 9;
+	if (vista == 0) return 2;
+	return vedi_ciclo ? 4 : 3;
+}
+
+static int schermata_precedente = -1;
+
+/* +1 = la nuova schermata entra da destra, -1 da sinistra, 0 = niente
+   scorrimento (primo disegno, stessa schermata, riquadri sovrapposti) */
+static int direzione_scorrimento(int da, int a) {
+	static const int profondita[] = {0, 1, 1, 2, 3, 0, 4};
+	if (da < 0 || da == a || da == 9 || a == 9) return 0;
+	if (da == 6) return 1; /* da fine partita si va sempre avanti (nuova partita) */
+	return profondita[a] >= profondita[da] ? 1 : -1;
+}
+
+static void disegna(void) {
+	int id = schermata_id();
+	int dir = direzione_scorrimento(schermata_precedente, id);
+	schermata_precedente = id;
+
+	if (dir) tr_leggi_oam(oam_a);
+	aggiorna_sprite();
+	if (dir) {
+		tr_leggi_oam(oam_b);
+		tr_scrivi_oam(oam_a); /* finche' la nuova schermata non entra restano gli sprite vecchi */
+	}
+	disegna_pannelli();
+	if (dir) transizione(dir);
+	else ui_carica();
 }
 
 static void nuova_partita(void) {

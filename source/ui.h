@@ -253,10 +253,21 @@ static void ui_carica(void) {
 	for (int i = 0; i < N_PAROLE; i++) vram[i] = tela[i];
 }
 
+#define TILE_VUOTO (TILE_COL * TILE_RIG + TILE_RIG) /* 620 */
+
+/* mappa dello sfondo: ogni tile punta a se stesso, fuori dalla grafica c'e'
+   il tile vuoto (cosi' lo scorrimento non mostra spazzatura) */
+static void ui_mappa_base(void) {
+	volatile unsigned short *map = (volatile unsigned short *)0x0600F000;
+	for (int ty = 0; ty < 32; ty++) {
+		for (int tx = 0; tx < 32; tx++) {
+			map[ty * 32 + tx] = (tx < TILE_COL && ty < TILE_RIG) ? ty * TILE_COL + tx : TILE_VUOTO;
+		}
+	}
+}
+
 static void ui_init(void) {
 	volatile unsigned short *pal = (volatile unsigned short *)0x05000000;
-	volatile unsigned short *map = (volatile unsigned short *)0x0600F000;
-
 	pal[0] = 0;
 	pal[K_PANNELLO] = COL5(1, 3, 6);
 	pal[K_ORO] = COL5(29, 24, 4);
@@ -274,13 +285,14 @@ static void ui_init(void) {
 	pal[K_LUCE] = COL5(30, 30, 28);
 	pal[K_OMBRA] = COL5(1, 1, 3);
 
-	for (int ty = 0; ty < 32; ty++) {
-		for (int tx = 0; tx < 32; tx++) {
-			map[ty * 32 + tx] = (tx < TILE_COL && ty < TILE_RIG) ? ty * TILE_COL + tx : 0;
-		}
-	}
+	/* i tile oltre la grafica (600 = N_PAROLE / 8 in poi) servono allo
+	   scorrimento tra schermate: 600-619 colonna di riserva, 620 tile vuoto */
+	volatile unsigned int *vram = (volatile unsigned int *)0x06000000;
+	for (int i = N_PAROLE; i < (TILE_VUOTO + 1) * 8; i++) vram[i] = 0;
+	ui_mappa_base();
 
 	*(volatile unsigned short *)0x04000008 = (30 << 8);
+	*(volatile unsigned short *)0x04000010 = 0; /* scorrimento orizzontale */
 }
 
 #endif
