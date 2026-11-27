@@ -1386,7 +1386,7 @@ int main(void) {
 			} else {
 				vista = !vista;
 				da_menu = 0;
-				SUONA((premuti & KEY_L) ? S_L : S_R);
+				if (premuti & KEY_L) SUONA(S_L); else SUONA(S_R);
 				cambiato = 1;
 			}
 		}
@@ -1509,12 +1509,12 @@ int main(void) {
 			} else {
 				if ((premuti & (KEY_LEFT | KEY_UP)) && n_campo > 0) {
 					cursore = (cursore + n_campo - 1) % n_campo;
-					SUONA((premuti & KEY_UP) ? S_SU_GIU : S_SX_DX);
+					if (premuti & KEY_UP) SUONA(S_SU_GIU); else SUONA(S_SX_DX);
 					cambiato = 1;
 				}
 				if ((premuti & (KEY_RIGHT | KEY_DOWN)) && n_campo > 0) {
 					cursore = (cursore + 1) % n_campo;
-					SUONA((premuti & KEY_DOWN) ? S_SU_GIU : S_SX_DX);
+					if (premuti & KEY_DOWN) SUONA(S_SU_GIU); else SUONA(S_SX_DX);
 					cambiato = 1;
 				}
 				if (premuti & KEY_B) {
