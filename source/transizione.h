@@ -129,26 +129,29 @@ static void transizione(int dir) {
 	tr_libere[tr_n_libere++] = TR_RISERVA;
 
 	for (int k = 1; k <= TR_FRAME; k++) {
-		VBlankIntrWait();
-		au_aggiorna();
 		int d = TR_FRAME - k;
 		int o = SCHERMO_W - (SCHERMO_W * d * d) / (TR_FRAME * TR_FRAME); /* frenata finale */
 		int w = dir * o;
-		tr_finestra(w >> 3, dir);
+		/* tutto il lavoro sulla grafica va fatto dentro il VBlank, e le cose
+		   che servono prima (scorrimento, sprite) vanno per prime: se lo
+		   scorrimento arriva tardi le righe in alto sfarfallano */
+		VBlankIntrWait();
 		RG16(0x04000010) = (unsigned short)(w & 0x1FF);
 		tr_oam_sposta(oam_a, 0, -dir * o);
 		tr_oam_sposta(oam_b, 64, dir * (SCHERMO_W - o));
+		tr_finestra(w >> 3, dir);
+		au_aggiorna();
 	}
 
 	/* un frame col risultato finale, poi si rimette tutto nella forma normale
 	   (identica a quella che si vede, quindi senza scatti) */
 	VBlankIntrWait();
-	au_aggiorna();
-	ui_carica();
-	ui_mappa_base();
 	RG16(0x04000010) = 0;
 	tr_scrivi_oam(oam_b);
 	for (int i = 64; i < 64 + TR_SPRITE; i++) sprite_nascondi(i);
+	ui_carica();
+	ui_mappa_base();
+	au_aggiorna();
 }
 
 #endif
