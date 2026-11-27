@@ -28,6 +28,10 @@ typedef struct {
 #define NP(fr)           {0, 0, fr, 0, 0}    /* pausa */
 #define SUONA(s) au_suona(s, (int)(sizeof(s) / sizeof((s)[0])))
 
+#include "audio_campioni.h"
+#define AU_DS_CNT (2 | (1 << 2) | (1 << 8) | (1 << 9)) /* PSG 100%, DS A 100% su L+R, timer 0 */
+#define CAMPIONE(id) au_campione(id)
+
 static const Nota *au_seq = 0;
 static int au_n = 0;
 static int au_i = 0;
@@ -37,8 +41,28 @@ static void au_init(void) {
 	RG16(0x04000084) = 0x80; /* alimenta l'audio */
 	/* tutti i canali PSG su sinistra e destra, volume generale AU_VOLUME */
 	RG16(0x04000080) = 0xFF00 | (AU_VOLUME << 4) | AU_VOLUME;
-	RG16(0x04000082) = 2;    /* PSG al 100% */
+	RG16(0x04000082) = AU_DS_CNT; /* PSG al 100% + Direct Sound A */
 	RG16(0x04000060) = 0;    /* canale 1 senza sweep */
+}
+
+/* ---- campioni (Direct Sound A): timer 0 + DMA 1 che riempie la FIFO ---- */
+static int au_cm_t = 0; /* frame rimasti al campione in corso (0 = fermo) */
+
+static void au_campione_stop(void) {
+	*(volatile unsigned int *)0x040000C4 = 0; /* DMA1 off */
+	RG16(0x04000102) = 0;                     /* timer 0 off */
+	au_cm_t = 0;
+}
+
+static void au_campione(int id) {
+	au_campione_stop();
+	RG16(0x04000082) = AU_DS_CNT | (1 << 11); /* svuota la FIFO */
+	*(volatile unsigned int *)0x040000BC = (unsigned int)(unsigned long)CAMP_DATI[id];
+	*(volatile unsigned int *)0x040000C0 = 0x040000A0;
+	*(volatile unsigned int *)0x040000C4 = 0xB6400000; /* FIFO, ripetuto, 32 bit */
+	RG16(0x04000100) = (unsigned short)(65536 - 1024); /* 16384 campioni/s */
+	RG16(0x04000102) = 0x80;
+	au_cm_t = CAMP_FRAME[id];
 }
 
 static void au_freq(unsigned long reg, int hz) {
@@ -100,6 +124,7 @@ static void au_suona(const Nota *s, int n) {
 }
 
 static void au_aggiorna(void) {
+	if (au_cm_t > 0 && --au_cm_t == 0) au_campione_stop();
 	if (!au_seq) return;
 	if (--au_t <= 0) au_prossima();
 }

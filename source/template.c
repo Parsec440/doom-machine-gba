@@ -502,8 +502,8 @@ static void esito_assegna(int r) {
 	if (vinto) SUONA(S_VITTORIA);
 	else if (r == 3) SUONA(S_CARTA_KO);
 	else if (r == 2) SUONA(S_COLPO);
-	else if (r == 1) SUONA(S_OK);
-	else SUONA(S_ERRORE);
+	else if (r == 1) CAMPIONE(CAMP_SELEZIONE);
+	else CAMPIONE(CAMP_ERRORE);
 }
 
 static void costruisci_menu(void) {
@@ -529,19 +529,19 @@ static void esegui_voce(void) {
 	costruisci_menu();
 	menu_aperto = 0;
 	if (n_voci == 0) {
-		SUONA(S_ERRORE);
+		CAMPIONE(CAMP_ERRORE);
 		return;
 	}
 	switch (voci[voce_sel]) {
-	case AZX_RILANCIA: rilancia(); SUONA(S_DADO); break;
+	case AZX_RILANCIA: rilancia(); CAMPIONE(CAMP_DADI); break;
 	case AZX_PIU: ritocca(+1); SUONA(S_RITOCCO); break;
 	case AZX_MENO: ritocca(-1); SUONA(S_RITOCCO); break;
 	case AZX_DIFESA: metti_difesa(); SUONA(S_DIFESA); break;
-	case AZX_TOGLI: togli_difesa(); SUONA(S_INDIETRO); break;
+	case AZX_TOGLI: togli_difesa(); CAMPIONE(CAMP_DESELEZIONE); break;
 	case AZX_ATTACCA:
 		da_menu = 1;
 		vista = 1;
-		SUONA(S_OK);
+		CAMPIONE(CAMP_SELEZIONE);
 		break;
 	}
 }
@@ -1282,33 +1282,33 @@ int main(void) {
 			if (codex) {
 				if (premuti & (KEY_LEFT | KEY_UP)) {
 					codex_cursore = (codex_cursore + N_MAZZO - 1) % N_MAZZO;
-					SUONA(S_SX_DX);
+					CAMPIONE(CAMP_SPOSTA);
 					cambiato = 1;
 				}
 				if (premuti & (KEY_RIGHT | KEY_DOWN)) {
 					codex_cursore = (codex_cursore + 1) % N_MAZZO;
-					SUONA(S_SX_DX);
+					CAMPIONE(CAMP_SPOSTA);
 					cambiato = 1;
 				}
 				if (premuti & (KEY_B | KEY_SELECT)) {
 					codex = 0;
-					SUONA(S_INDIETRO);
+					CAMPIONE(CAMP_DESELEZIONE);
 					cambiato = 1;
 				}
 			} else {
 				if (premuti & KEY_UP) {
 					titolo_voce = (titolo_voce + 2) % 3;
-					SUONA(S_SU_GIU);
+					CAMPIONE(CAMP_SPOSTA);
 					cambiato = 1;
 				}
 				if (premuti & KEY_DOWN) {
 					titolo_voce = (titolo_voce + 1) % 3;
-					SUONA(S_SU_GIU);
+					CAMPIONE(CAMP_SPOSTA);
 					cambiato = 1;
 				}
 				if (titolo_voce == 1 && (premuti & (KEY_LEFT | KEY_RIGHT))) {
 					difficile = !difficile;
-					SUONA(S_SX_DX);
+					CAMPIONE(CAMP_SPOSTA);
 					cambiato = 1;
 				}
 				if (premuti & KEY_START) {
@@ -1323,11 +1323,11 @@ int main(void) {
 						SUONA(S_AVVIO);
 					} else if (titolo_voce == 1) {
 						difficile = !difficile;
-						SUONA(S_SX_DX);
+						CAMPIONE(CAMP_SPOSTA);
 					} else {
 						codex = 1;
 						codex_cursore = 0;
-						SUONA(S_OK);
+						CAMPIONE(CAMP_SELEZIONE);
 					}
 					cambiato = 1;
 				}
@@ -1349,12 +1349,12 @@ int main(void) {
 		if (pausa) {
 			if (premuti & KEY_UP) {
 				voce_pausa = (voce_pausa + 2) % 3;
-				SUONA(S_SU_GIU);
+				CAMPIONE(CAMP_SPOSTA);
 				cambiato = 1;
 			}
 			if (premuti & KEY_DOWN) {
 				voce_pausa = (voce_pausa + 1) % 3;
-				SUONA(S_SU_GIU);
+				CAMPIONE(CAMP_SPOSTA);
 				cambiato = 1;
 			}
 			if (premuti & (KEY_B | KEY_START)) {
@@ -1371,7 +1371,7 @@ int main(void) {
 				} else {
 					iniziata = 0;
 					pausa = 0;
-					SUONA(S_INDIETRO);
+					CAMPIONE(CAMP_DESELEZIONE);
 				}
 				cambiato = 1;
 			}
@@ -1385,7 +1385,7 @@ int main(void) {
 				cambiato = 1;
 			} else if (premuti & (KEY_B | KEY_SELECT)) {
 				conferma = 0;
-				SUONA(S_INDIETRO);
+				CAMPIONE(CAMP_DESELEZIONE);
 				cambiato = 1;
 			}
 			if (cambiato) disegna();
@@ -1401,19 +1401,19 @@ int main(void) {
 		}
 		if (premuti & KEY_SELECT) {
 			if (attacco || menu_aperto || carta_menu || vedi_ciclo) {
-				SUONA(S_ERRORE);
+				CAMPIONE(CAMP_ERRORE);
 			} else {
 				conferma = 1;
-				SUONA(S_SELECT);
+				CAMPIONE(CAMP_SELEZIONE);
 				cambiato = 1;
 			}
 		} else if (premuti & (KEY_L | KEY_R)) {
 			if (attacco || menu_aperto || carta_menu || vedi_ciclo) {
-				SUONA(S_ERRORE);
+				CAMPIONE(CAMP_ERRORE);
 			} else {
 				vista = !vista;
 				da_menu = 0;
-				if (premuti & KEY_L) SUONA(S_L); else SUONA(S_R);
+				if (premuti & KEY_L) CAMPIONE(CAMP_SCHEDA); else CAMPIONE(CAMP_SCHEDA);
 				cambiato = 1;
 			}
 		}
@@ -1426,18 +1426,18 @@ int main(void) {
 			if (!tirato) {
 				if (premuti & KEY_A) {
 					tira();
-					SUONA(S_DADI);
+					CAMPIONE(CAMP_DADI);
 					cambiato = 1;
 				}
 			} else if (attacco) {
 				if (premuti & KEY_LEFT) {
 					selezionato = (selezionato + n_attivi - 1) % n_attivi;
-					SUONA(S_SX_DX);
+					CAMPIONE(CAMP_SPOSTA);
 					cambiato = 1;
 				}
 				if (premuti & KEY_RIGHT) {
 					selezionato = (selezionato + 1) % n_attivi;
-					SUONA(S_SX_DX);
+					CAMPIONE(CAMP_SPOSTA);
 					cambiato = 1;
 				}
 				if (premuti & KEY_A) {
@@ -1445,19 +1445,19 @@ int main(void) {
 					cambiato = 1;
 				} else if (premuti & KEY_B) {
 					annulla_attacco();
-					SUONA(S_INDIETRO);
+					CAMPIONE(CAMP_DESELEZIONE);
 					cambiato = 1;
 				}
 			} else if (menu_aperto) {
 				costruisci_menu();
 				if ((premuti & KEY_UP) && n_voci > 0) {
 					voce_sel = (voce_sel + n_voci - 1) % n_voci;
-					SUONA(S_SU_GIU);
+					CAMPIONE(CAMP_SPOSTA);
 					cambiato = 1;
 				}
 				if ((premuti & KEY_DOWN) && n_voci > 0) {
 					voce_sel = (voce_sel + 1) % n_voci;
-					SUONA(S_SU_GIU);
+					CAMPIONE(CAMP_SPOSTA);
 					cambiato = 1;
 				}
 				if (premuti & KEY_A) {
@@ -1465,18 +1465,18 @@ int main(void) {
 					cambiato = 1;
 				} else if (premuti & KEY_B) {
 					menu_aperto = 0;
-					SUONA(S_INDIETRO);
+					CAMPIONE(CAMP_DESELEZIONE);
 					cambiato = 1;
 				}
 			} else {
 				if (premuti & KEY_LEFT) {
 					selezionato = (selezionato + n_attivi - 1) % n_attivi;
-					SUONA(S_SX_DX);
+					CAMPIONE(CAMP_SPOSTA);
 					cambiato = 1;
 				}
 				if (premuti & KEY_RIGHT) {
 					selezionato = (selezionato + 1) % n_attivi;
-					SUONA(S_SX_DX);
+					CAMPIONE(CAMP_SPOSTA);
 					cambiato = 1;
 				}
 				if (premuti & KEY_A) {
@@ -1484,9 +1484,9 @@ int main(void) {
 					if (n_voci > 0) {
 						menu_aperto = 1;
 						voce_sel = 0;
-						SUONA(S_OK);
+						CAMPIONE(CAMP_SELEZIONE);
 					} else {
-						SUONA(S_ERRORE);
+						CAMPIONE(CAMP_ERRORE);
 					}
 					cambiato = 1;
 				}
@@ -1496,19 +1496,19 @@ int main(void) {
 			if (vedi_ciclo) {
 				if (premuti & KEY_B) {
 					vedi_ciclo = 0;
-					SUONA(S_INDIETRO);
+					CAMPIONE(CAMP_DESELEZIONE);
 					cambiato = 1;
 				}
 			} else if (carta_menu) {
 				costruisci_menu_carta();
 				if ((premuti & KEY_UP) && n_voci_carta > 0) {
 					voce_carta = (voce_carta + n_voci_carta - 1) % n_voci_carta;
-					SUONA(S_SU_GIU);
+					CAMPIONE(CAMP_SPOSTA);
 					cambiato = 1;
 				}
 				if ((premuti & KEY_DOWN) && n_voci_carta > 0) {
 					voce_carta = (voce_carta + 1) % n_voci_carta;
-					SUONA(S_SU_GIU);
+					CAMPIONE(CAMP_SPOSTA);
 					cambiato = 1;
 				}
 				if (premuti & KEY_A) {
@@ -1518,40 +1518,40 @@ int main(void) {
 							bersaglio = cursore;
 							for (int k = 0; k < MAX_CAS; k++) riempita[k] = 0;
 							carta_menu = 0;
-							SUONA(S_OK);
+							CAMPIONE(CAMP_SELEZIONE);
 						} else {
 							vedi_ciclo = 1;
 							carta_menu = 0;
-							SUONA(S_OK);
+							CAMPIONE(CAMP_SELEZIONE);
 						}
 					} else {
-						SUONA(S_ERRORE);
+						CAMPIONE(CAMP_ERRORE);
 					}
 					cambiato = 1;
 				} else if (premuti & KEY_B) {
 					carta_menu = 0;
-					SUONA(S_INDIETRO);
+					CAMPIONE(CAMP_DESELEZIONE);
 					cambiato = 1;
 				}
 			} else {
 				if ((premuti & (KEY_LEFT | KEY_UP)) && n_campo > 0) {
 					cursore = (cursore + n_campo - 1) % n_campo;
-					if (premuti & KEY_UP) SUONA(S_SU_GIU); else SUONA(S_SX_DX);
+					if (premuti & KEY_UP) CAMPIONE(CAMP_SPOSTA); else CAMPIONE(CAMP_SPOSTA);
 					cambiato = 1;
 				}
 				if ((premuti & (KEY_RIGHT | KEY_DOWN)) && n_campo > 0) {
 					cursore = (cursore + 1) % n_campo;
-					if (premuti & KEY_DOWN) SUONA(S_SU_GIU); else SUONA(S_SX_DX);
+					if (premuti & KEY_DOWN) CAMPIONE(CAMP_SPOSTA); else CAMPIONE(CAMP_SPOSTA);
 					cambiato = 1;
 				}
 				if (premuti & KEY_B) {
 					da_menu = 0;
 					vista = 0;
-					SUONA(S_INDIETRO);
+					CAMPIONE(CAMP_DESELEZIONE);
 					cambiato = 1;
 				} else if (premuti & KEY_A) {
 					if (n_campo == 0) {
-						SUONA(S_ERRORE);
+						CAMPIONE(CAMP_ERRORE);
 					} else if (da_menu) {
 						attacco = 1;
 						bersaglio = cursore;
@@ -1564,9 +1564,9 @@ int main(void) {
 						if (n_voci_carta > 0) {
 							carta_menu = 1;
 							voce_carta = 0;
-							SUONA(S_OK);
+							CAMPIONE(CAMP_SELEZIONE);
 						} else {
-							SUONA(S_ERRORE);
+							CAMPIONE(CAMP_ERRORE);
 						}
 					}
 					cambiato = 1;
