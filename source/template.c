@@ -160,10 +160,6 @@ static int casella_ok(Casella c, int v) {
 
 static const char LETTERE[] = "ABCDEF";
 
-/* etichette brevi per l'anteprima nella schermata del titolo: restano
-   dentro al riquadro invece di sconfinare come i nomi completi */
-static const char *const ANTEPRIMA[4] = {"Misery", "Power", "Flaw", "Siphon"};
-
 static const char *azione_desc(Azione a) {
 	static char buf[24];
 	switch (a.tipo) {
@@ -664,8 +660,6 @@ static void aggiorna_sprite(void) {
 		if (codex) {
 			int idx = (codex_cursore < N_POOL) ? codex_cursore : -1;
 			sprite_set(0, 191, 44, tile_carta(idx));
-		} else {
-			for (int i = 0; i < 4; i++) sprite_set(i, 38 + 44 * i, 108, tile_carta(i));
 		}
 		return;
 	}
@@ -1139,31 +1133,26 @@ static void disegna(void) {
 			sprintf(voce_diff, "Difficolta: < %s >", difficile ? "Difficile" : "Normale");
 			const char *const VOCE_TITOLO[3] = {"Nuova Partita", voce_diff, "Codex"};
 
-			ui_pannello(14, 14, 212, 92);
+			const int dy = 20; /* riquadro centrato in verticale */
+			ui_pannello(14, 14 + dy, 212, 92);
 
 			/* titolo in rilievo su due righe (ombra + luce + colore pieno) */
-			ui_testo_c(122, 26, "DOOM", K_OMBRA, 3);
-			ui_testo_c(118, 22, "DOOM", K_LUCE, 3);
-			ui_testo_c(120, 24, "DOOM", K_GIALLO, 3);
+			ui_testo_c(122, 26 + dy, "DOOM", K_OMBRA, 3);
+			ui_testo_c(118, 22 + dy, "DOOM", K_LUCE, 3);
+			ui_testo_c(120, 24 + dy, "DOOM", K_GIALLO, 3);
 
-			ui_testo_c(121, 53, "MACHINE", K_OMBRA, 2);
-			ui_testo_c(119, 51, "MACHINE", K_LUCE, 2);
-			ui_testo_c(120, 52, "MACHINE", K_ROSSO, 2);
+			ui_testo_c(121, 53 + dy, "MACHINE", K_OMBRA, 2);
+			ui_testo_c(119, 51 + dy, "MACHINE", K_LUCE, 2);
+			ui_testo_c(120, 52 + dy, "MACHINE", K_ROSSO, 2);
 
 			for (int k = 0; k < 3; k++) {
-				int ry = 68 + k * 11;
+				int ry = 68 + dy + k * 11;
 				/* la barra luminosa e' larga quanto la scritta (piu' un
 				   margine), cosi' la ingloba sempre per intero */
 				int mw = ui_larghezza(VOCE_TITOLO[k], 1) + 18;
 				if (k == titolo_voce) ui_riga_sel(120 - mw / 2, ry, mw);
 				ui_testo_c(120, ry + 2, VOCE_TITOLO[k],
 				           k == titolo_voce ? K_GIALLO : (k == 1 && difficile ? K_ROSSO : K_TESTO), 1);
-			}
-
-			for (int i = 0; i < 4; i++) {
-				int cx = 38 + 44 * i + 16;
-				ui_pannello(cx - 21, 139, 42, 15);
-				ui_testo_c(cx, 143, ANTEPRIMA[i], K_TESTO, 1);
 			}
 		}
 	} else if (vinto || perso) {
