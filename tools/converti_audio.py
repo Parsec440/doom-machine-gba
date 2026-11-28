@@ -50,9 +50,9 @@ def main(cartella, dst):
         d[-fade:] *= np.linspace(1, 0, fade)
         b = np.round(d * 127).astype(np.int8)
         n = len(b)
-        b = np.concatenate([b, np.zeros(1024 + (-(n + 1024)) % 4, dtype=np.int8)])  # silenzio di coda
+        b = np.concatenate([b, np.zeros(2048 + (-(n + 2048)) % 4, dtype=np.int8)])  # silenzio di coda
         nomi.append(nome); dati.append(b)
-        frames.append(int(np.ceil(n * FRAME_HZ / RATE)) + 1)
+        frames.append(n)
         o.append(f"#define {nome} {i}")
     o += ["", f"#define N_CAMPIONI {len(SUONI)}", ""]
     for i, b in enumerate(dati):
@@ -62,8 +62,8 @@ def main(cartella, dst):
         o.append("};")
     o += ["", "static const signed char *const CAMP_DATI[N_CAMPIONI] = {"]
     o += [f"\tCAMP_{i}," for i in range(len(dati))] + ["};", ""]
-    o += ["/* durata in frame video, per fermare la riproduzione */",
-          "static const unsigned short CAMP_FRAME[N_CAMPIONI] = {" + ", ".join(map(str, frames)) + "};", "", "#endif", ""]
+    o += ["/* campioni da riprodurre prima di fermare il DMA (il resto e' silenzio di coda) */",
+          "static const unsigned short CAMP_LEN[N_CAMPIONI] = {" + ", ".join(map(str, frames)) + "};", "", "#endif", ""]
     open(dst, "w").write("\n".join(o))
     print("campioni:", [(n, len(b)) for n, b in zip(nomi, dati)], "totale byte", sum(len(b) for b in dati))
 

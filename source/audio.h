@@ -46,12 +46,13 @@ static void au_init(void) {
 }
 
 /* ---- campioni (Direct Sound A): timer 0 + DMA 1 che riempie la FIFO ---- */
-static int au_cm_t = 0; /* frame rimasti al campione in corso (0 = fermo) */
+static int au_cm_len = 0; /* campioni del suono in corso (0 = fermo) */
 
 static void au_campione_stop(void) {
 	*(volatile unsigned int *)0x040000C4 = 0; /* DMA1 off */
 	RG16(0x04000102) = 0;                     /* timer 0 off */
-	au_cm_t = 0;
+	RG16(0x04000106) = 0;                     /* timer 1 off */
+	au_cm_len = 0;
 }
 
 static void au_campione(int id) {
@@ -60,9 +61,11 @@ static void au_campione(int id) {
 	*(volatile unsigned int *)0x040000BC = (unsigned int)(unsigned long)CAMP_DATI[id];
 	*(volatile unsigned int *)0x040000C0 = 0x040000A0;
 	*(volatile unsigned int *)0x040000C4 = 0xB6400000; /* FIFO, ripetuto, 32 bit */
+	RG16(0x04000104) = 0;      /* timer 1 conta i campioni riprodotti */
+	RG16(0x04000106) = 0x84;   /* (a cascata sul timer 0) */
 	RG16(0x04000100) = (unsigned short)(65536 - 1024); /* 16384 campioni/s */
 	RG16(0x04000102) = 0x80;
-	au_cm_t = CAMP_FRAME[id];
+	au_cm_len = CAMP_LEN[id];
 }
 
 static void au_freq(unsigned long reg, int hz) {
@@ -124,7 +127,9 @@ static void au_suona(const Nota *s, int n) {
 }
 
 static void au_aggiorna(void) {
-	if (au_cm_t > 0 && --au_cm_t == 0) au_campione_stop();
+	/* il timer 1 dice quanti campioni sono davvero usciti, anche se qualche
+	   frame e' saltato (transizioni): cosi' il DMA non legge oltre la fine */
+	if (au_cm_len > 0 && RG16(0x04000104) >= au_cm_len) au_campione_stop();
 	if (!au_seq) return;
 	if (--au_t <= 0) au_prossima();
 }

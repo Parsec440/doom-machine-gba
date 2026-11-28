@@ -1311,12 +1311,7 @@ int main(void) {
 					CAMPIONE(CAMP_SPOSTA);
 					cambiato = 1;
 				}
-				if (premuti & KEY_START) {
-					rng_seed(frame ^ 0xA5A5A5A5u);
-					nuova_partita();
-					SUONA(S_AVVIO);
-					cambiato = 1;
-				} else if (premuti & KEY_A) {
+				if (premuti & KEY_A) { /* sul titolo START non fa nulla: si sceglie solo con A */
 					if (titolo_voce == 0) {
 						rng_seed(frame ^ 0xA5A5A5A5u);
 						nuova_partita();
