@@ -1256,6 +1256,7 @@ int main(void) {
 	irqInit();
 	irqEnable(IRQ_VBLANK);
 	au_init();
+	au_musica();
 
 	*(volatile unsigned short *)0x04000000 = 0x0080;
 	sprite_nascondi_tutti();
@@ -1513,6 +1514,7 @@ int main(void) {
 							bersaglio = cursore;
 							for (int k = 0; k < MAX_CAS; k++) riempita[k] = 0;
 							carta_menu = 0;
+							vista = 0; /* si scelgono i dadi: subito sulla schermata dadi */
 							CAMPIONE(CAMP_SELEZIONE);
 						} else {
 							vedi_ciclo = 1;

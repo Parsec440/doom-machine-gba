@@ -29,8 +29,13 @@ typedef struct {
 #define SUONA(s) au_suona(s, (int)(sizeof(s) / sizeof((s)[0])))
 
 #include "audio_campioni.h"
-#define AU_DS_CNT (2 | (1 << 2) | (1 << 8) | (1 << 9)) /* PSG 100%, DS A 100% su L+R, timer 0 */
+#include "musica.h"
+/* DS A = effetti (DMA 1), DS B = musica (DMA 2), entrambi sul timer 0 a 16384 Hz;
+   il timer 1 conta in cascata i campioni usciti (orologio per le durate).
+   PSG 100%, effetti 100%, musica 50%. */
+#define AU_DS_CNT (2 | (1 << 2) | (3 << 8) | (3 << 12))
 #define CAMPIONE(id) au_campione(id)
+extern const unsigned char musica_bin[]; /* data/musica.bin (Makefile: DATA) */
 
 static const Nota *au_seq = 0;
 static int au_n = 0;
@@ -41,31 +46,63 @@ static void au_init(void) {
 	RG16(0x04000084) = 0x80; /* alimenta l'audio */
 	/* tutti i canali PSG su sinistra e destra, volume generale AU_VOLUME */
 	RG16(0x04000080) = 0xFF00 | (AU_VOLUME << 4) | AU_VOLUME;
-	RG16(0x04000082) = AU_DS_CNT; /* PSG al 100% + Direct Sound A */
+	RG16(0x04000082) = AU_DS_CNT | (1 << 11) | (1 << 15); /* PSG + Direct Sound A/B, FIFO vuote */
 	RG16(0x04000060) = 0;    /* canale 1 senza sweep */
+	RG16(0x04000100) = (unsigned short)(65536 - 1024); /* timer 0: 16384 campioni/s */
+	RG16(0x04000104) = 0;    /* timer 1: conta i campioni usciti */
+	RG16(0x04000106) = 0x84;
+	RG16(0x04000102) = 0x80;
 }
 
 /* ---- campioni (Direct Sound A): timer 0 + DMA 1 che riempie la FIFO ---- */
-static int au_cm_len = 0; /* campioni del suono in corso (0 = fermo) */
+static int au_cm_len = 0;        /* campioni del suono in corso (0 = fermo) */
+static unsigned short au_cm_ini = 0; /* valore del timer 1 all'avvio del suono */
+
+#define AU_TICK() RG16(0x04000104)
 
 static void au_campione_stop(void) {
 	*(volatile unsigned int *)0x040000C4 = 0; /* DMA1 off */
-	RG16(0x04000102) = 0;                     /* timer 0 off */
-	RG16(0x04000106) = 0;                     /* timer 1 off */
 	au_cm_len = 0;
 }
 
 static void au_campione(int id) {
 	au_campione_stop();
-	RG16(0x04000082) = AU_DS_CNT | (1 << 11); /* svuota la FIFO */
+	RG16(0x04000082) = AU_DS_CNT | (1 << 11); /* svuota solo la FIFO A */
 	*(volatile unsigned int *)0x040000BC = (unsigned int)(unsigned long)CAMP_DATI[id];
 	*(volatile unsigned int *)0x040000C0 = 0x040000A0;
 	*(volatile unsigned int *)0x040000C4 = 0xB6400000; /* FIFO, ripetuto, 32 bit */
-	RG16(0x04000104) = 0;      /* timer 1 conta i campioni riprodotti */
-	RG16(0x04000106) = 0x84;   /* (a cascata sul timer 0) */
-	RG16(0x04000100) = (unsigned short)(65536 - 1024); /* 16384 campioni/s */
-	RG16(0x04000102) = 0x80;
+	au_cm_ini = AU_TICK();
 	au_cm_len = CAMP_LEN[id];
+}
+
+/* ---- musica in loop (Direct Sound B, DMA 2) ---- */
+static int au_mus_pos = 0;           /* campioni di musica gia' usciti */
+static unsigned short au_mus_tick = 0;
+
+static void au_musica(void) {
+	RG16(0x04000082) = AU_DS_CNT | (1 << 15); /* svuota solo la FIFO B */
+	*(volatile unsigned int *)0x040000C8 = (unsigned int)(unsigned long)musica_bin;
+	*(volatile unsigned int *)0x040000CC = 0x040000A4;
+	*(volatile unsigned int *)0x040000D0 = 0xB6400000;
+	au_mus_pos = 0;
+	au_mus_tick = AU_TICK();
+}
+
+/* da chiamare a ogni frame: segue la musica e, quando arriva in fondo, fa
+   ripartire il DMA dal punto giusto dell'inizio (la coda e' una copia
+   dell'inizio, quindi senza buchi) */
+static void au_musica_aggiorna(void) {
+	unsigned short t = AU_TICK();
+	au_mus_pos += (unsigned short)(t - au_mus_tick);
+	au_mus_tick = t;
+	if (au_mus_pos >= MUS_LEN) {
+		au_mus_pos -= MUS_LEN;
+		/* il DMA e' avanti di circa una FIFO (16-32 campioni) rispetto a quanto si sente */
+		unsigned int off = ((unsigned int)au_mus_pos + 24) & ~3u;
+		*(volatile unsigned int *)0x040000D0 = 0; /* DMA2 off (la FIFO tiene i campioni) */
+		*(volatile unsigned int *)0x040000C8 = (unsigned int)(unsigned long)musica_bin + off;
+		*(volatile unsigned int *)0x040000D0 = 0xB6400000;
+	}
 }
 
 static void au_freq(unsigned long reg, int hz) {
@@ -129,7 +166,8 @@ static void au_suona(const Nota *s, int n) {
 static void au_aggiorna(void) {
 	/* il timer 1 dice quanti campioni sono davvero usciti, anche se qualche
 	   frame e' saltato (transizioni): cosi' il DMA non legge oltre la fine */
-	if (au_cm_len > 0 && RG16(0x04000104) >= au_cm_len) au_campione_stop();
+	if (au_cm_len > 0 && (unsigned short)(AU_TICK() - au_cm_ini) >= au_cm_len) au_campione_stop();
+	au_musica_aggiorna();
 	if (!au_seq) return;
 	if (--au_t <= 0) au_prossima();
 }
