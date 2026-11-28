@@ -9,6 +9,7 @@ import sys, wave
 import numpy as np
 
 RATE = 16384
+SCALE = [1.0, 0.5, 0.25, 0.125]
 FRAME_HZ = 16777216 / 280896   # frame video al secondo
 SUONI = [  # (costante, file)
     ("CAMP_DADI", "01_lancio_dadi.wav"),
@@ -48,23 +49,29 @@ def main(cartella, dst):
         d = d / pico * 0.9
         fade = int(RATE * 0.004)
         d[-fade:] *= np.linspace(1, 0, fade)
-        b = np.round(d * 127).astype(np.int8)
-        n = len(b)
-        b = np.concatenate([b, np.zeros(2048 + (-(n + 2048)) % 4, dtype=np.int8)])  # silenzio di coda
-        nomi.append(nome); dati.append(b)
+        n = len(d)
+        copie = []
+        for sc in SCALE:  # una copia per livello di volume (100%, 50%, 25%, 12%)
+            b = np.round(d * sc * 127).astype(np.int8)
+            copie.append(np.concatenate([b, np.zeros(2048 + (-(n + 2048)) % 4, dtype=np.int8)]))  # silenzio di coda
+        nomi.append(nome); dati.append(copie)
         frames.append(n)
         o.append(f"#define {nome} {i}")
-    o += ["", f"#define N_CAMPIONI {len(SUONI)}", ""]
-    for i, b in enumerate(dati):
-        o.append(f"static const signed char CAMP_{i}[{len(b)}] __attribute__((aligned(4))) = {{")
-        for k in range(0, len(b), 24):
-            o.append("\t" + ",".join(str(int(x)) for x in b[k:k + 24]) + ",")
-        o.append("};")
-    o += ["", "static const signed char *const CAMP_DATI[N_CAMPIONI] = {"]
-    o += [f"\tCAMP_{i}," for i in range(len(dati))] + ["};", ""]
+    o += ["", f"#define N_CAMPIONI {len(SUONI)}", f"#define N_VOL_CAMP {len(SCALE)}", ""]
+    for i, copie in enumerate(dati):
+        for v, b in enumerate(copie):
+            o.append(f"static const signed char CAMP_{i}_{v}[{len(b)}] __attribute__((aligned(4))) = {{")
+            for k in range(0, len(b), 24):
+                o.append("\t" + ",".join(str(int(x)) for x in b[k:k + 24]) + ",")
+            o.append("};")
+    o += ["", "/* [volume 0 = 100%, 1 = 50%, 2 = 25%, 3 = 12%][suono] */",
+          "static const signed char *const CAMP_DATI[N_VOL_CAMP][N_CAMPIONI] = {"]
+    for v in range(len(SCALE)):
+        o.append("\t{" + ", ".join(f"CAMP_{i}_{v}" for i in range(len(dati))) + "},")
+    o += ["};", ""]
     o += ["/* campioni da riprodurre prima di fermare il DMA (il resto e' silenzio di coda) */",
           "static const unsigned short CAMP_LEN[N_CAMPIONI] = {" + ", ".join(map(str, frames)) + "};", "", "#endif", ""]
     open(dst, "w").write("\n".join(o))
-    print("campioni:", [(n, len(b)) for n, b in zip(nomi, dati)], "totale byte", sum(len(b) for b in dati))
+    print("campioni:", [(n, len(c[0])) for n, c in zip(nomi, dati)], "totale byte", sum(len(b) for c in dati for b in c))
 
 main(sys.argv[1], sys.argv[2])

@@ -32,10 +32,24 @@ typedef struct {
 #include "musica.h"
 /* DS A = effetti (DMA 1), DS B = musica (DMA 2), entrambi sul timer 0 a 16384 Hz;
    il timer 1 conta in cascata i campioni usciti (orologio per le durate).
-   PSG 100%, effetti 100%, musica 50%. */
-#define AU_DS_CNT (2 | (1 << 2) | (3 << 8) | (3 << 12))
+
+   Volumi (opzioni): 0 = spento, 1-4 = quattro passi da -6 dB (4 = massimo).
+   - effetti campionati: quattro copie scalate in audio_campioni.h;
+   - effetti PSG: volume generale del PSG (SOUNDCNT_L);
+   - musica: DS B al 100%/50% + due copie (data/musica.bin e musica_basso.bin, 1/4). */
+#define VOL_MAX 4
 #define CAMPIONE(id) au_campione(id)
-extern const unsigned char musica_bin[]; /* data/musica.bin (Makefile: DATA) */
+extern const unsigned char musica_bin[];        /* data/musica.bin (Makefile: DATA) */
+extern const unsigned char musica_basso_bin[];  /* data/musica_basso.bin */
+
+static int au_vol_eff = VOL_MAX; /* volume degli effetti 0-4 */
+static int au_vol_mus = 3;       /* volume della musica 0-4 (3 = come prima: 50%) */
+
+/* SOUNDCNT_H: PSG 100%, DS A 100%, DS B 100% o 50% secondo il livello, tutto su L+R */
+static unsigned short au_cnt(void) {
+	int b100 = (au_vol_mus == 4 || au_vol_mus == 2);
+	return (unsigned short)(2 | (1 << 2) | (b100 ? (1 << 3) : 0) | (3 << 8) | (3 << 12));
+}
 
 static const Nota *au_seq = 0;
 static int au_n = 0;
@@ -46,7 +60,7 @@ static void au_init(void) {
 	RG16(0x04000084) = 0x80; /* alimenta l'audio */
 	/* tutti i canali PSG su sinistra e destra, volume generale AU_VOLUME */
 	RG16(0x04000080) = 0xFF00 | (AU_VOLUME << 4) | AU_VOLUME;
-	RG16(0x04000082) = AU_DS_CNT | (1 << 11) | (1 << 15); /* PSG + Direct Sound A/B, FIFO vuote */
+	RG16(0x04000082) = au_cnt() | (1 << 11) | (1 << 15); /* PSG + Direct Sound A/B, FIFO vuote */
 	RG16(0x04000060) = 0;    /* canale 1 senza sweep */
 	RG16(0x04000100) = (unsigned short)(65536 - 1024); /* timer 0: 16384 campioni/s */
 	RG16(0x04000104) = 0;    /* timer 1: conta i campioni usciti */
@@ -67,8 +81,9 @@ static void au_campione_stop(void) {
 
 static void au_campione(int id) {
 	au_campione_stop();
-	RG16(0x04000082) = AU_DS_CNT | (1 << 11); /* svuota solo la FIFO A */
-	*(volatile unsigned int *)0x040000BC = (unsigned int)(unsigned long)CAMP_DATI[id];
+	if (au_vol_eff == 0) return;
+	RG16(0x04000082) = au_cnt() | (1 << 11); /* svuota solo la FIFO A */
+	*(volatile unsigned int *)0x040000BC = (unsigned int)(unsigned long)CAMP_DATI[VOL_MAX - au_vol_eff][id];
 	*(volatile unsigned int *)0x040000C0 = 0x040000A0;
 	*(volatile unsigned int *)0x040000C4 = 0xB6400000; /* FIFO, ripetuto, 32 bit */
 	au_cm_ini = AU_TICK();
@@ -79,13 +94,30 @@ static void au_campione(int id) {
 static int au_mus_pos = 0;           /* campioni di musica gia' usciti */
 static unsigned short au_mus_tick = 0;
 
-static void au_musica(void) {
-	RG16(0x04000082) = AU_DS_CNT | (1 << 15); /* svuota solo la FIFO B */
-	*(volatile unsigned int *)0x040000C8 = (unsigned int)(unsigned long)musica_bin;
+static const unsigned char *au_mus_base(void) {
+	return (au_vol_mus >= 3) ? musica_bin : musica_basso_bin; /* 4-3: normale, 2-1: a 1/4 */
+}
+
+/* (ri)parte dal campione 'pos' del brano; la FIFO si svuota solo con 'reset' */
+static void au_musica_vai(int pos, int reset) {
+	*(volatile unsigned int *)0x040000D0 = 0; /* DMA2 off */
+	if (au_vol_mus == 0) {
+		RG16(0x04000082) = au_cnt() | (1 << 15); /* musica spenta: FIFO B vuota */
+		return;
+	}
+	if (reset) RG16(0x04000082) = au_cnt() | (1 << 15);
+	else RG16(0x04000082) = au_cnt();
+	/* il DMA e' avanti di circa una FIFO (16-32 campioni) rispetto a quanto si sente */
+	unsigned int off = (unsigned int)(reset ? pos : pos + 24) & ~3u; /* il DMA legge a parole */
+	*(volatile unsigned int *)0x040000C8 = (unsigned int)(unsigned long)au_mus_base() + off;
 	*(volatile unsigned int *)0x040000CC = 0x040000A4;
 	*(volatile unsigned int *)0x040000D0 = 0xB6400000;
+}
+
+static void au_musica(void) {
 	au_mus_pos = 0;
 	au_mus_tick = AU_TICK();
+	au_musica_vai(0, 1);
 }
 
 /* da chiamare a ogni frame: segue la musica e, quando arriva in fondo, fa
@@ -97,12 +129,25 @@ static void au_musica_aggiorna(void) {
 	au_mus_tick = t;
 	if (au_mus_pos >= MUS_LEN) {
 		au_mus_pos -= MUS_LEN;
-		/* il DMA e' avanti di circa una FIFO (16-32 campioni) rispetto a quanto si sente */
-		unsigned int off = ((unsigned int)au_mus_pos + 24) & ~3u;
-		*(volatile unsigned int *)0x040000D0 = 0; /* DMA2 off (la FIFO tiene i campioni) */
-		*(volatile unsigned int *)0x040000C8 = (unsigned int)(unsigned long)musica_bin + off;
-		*(volatile unsigned int *)0x040000D0 = 0xB6400000;
+		if (au_vol_mus != 0) au_musica_vai(au_mus_pos, 0);
 	}
+}
+
+/* cambia il volume della musica (0-4) senza interromperla */
+static void au_set_musica(int v) {
+	au_musica_aggiorna();
+	int era_muta = (au_vol_mus == 0);
+	au_vol_mus = v < 0 ? 0 : (v > VOL_MAX ? VOL_MAX : v);
+	if (au_vol_mus != 0) au_musica_vai(au_mus_pos, era_muta);
+	else au_musica_vai(0, 0);
+}
+
+/* cambia il volume degli effetti (0-4): PSG col volume generale, campioni
+   con la copia scalata scelta al momento della riproduzione */
+static void au_set_effetti(int v) {
+	static const unsigned char PSG[VOL_MAX + 1] = {0, 0, 1, 2, AU_VOLUME};
+	au_vol_eff = v < 0 ? 0 : (v > VOL_MAX ? VOL_MAX : v);
+	RG16(0x04000080) = 0xFF00 | (PSG[au_vol_eff] << 4) | PSG[au_vol_eff];
 }
 
 static void au_freq(unsigned long reg, int hz) {
@@ -157,6 +202,7 @@ static void au_prossima(void) {
 
 static void au_suona(const Nota *s, int n) {
 	au_silenzio(); /* un nuovo suono taglia quello precedente */
+	if (au_vol_eff == 0) return;
 	au_seq = s;
 	au_n = n;
 	au_i = 0;

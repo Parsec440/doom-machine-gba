@@ -3,7 +3,7 @@
 mono, 16384 Hz, normalizzato. In coda si copiano i primi MUS_HEAD campioni
 dell'inizio, cosi' il loop riparte senza buchi. Scrive anche source/musica.h.
 
-Uso:  python3 tools/converti_musica.py brano.mod data/musica.bin source/musica.h
+Uso:  python3 tools/converti_musica.py brano.mod data/musica.bin source/musica.h data/musica_basso.bin
 Richiede ffmpeg (con supporto libopenmpt per i MOD)."""
 import subprocess, sys
 import numpy as np
@@ -11,7 +11,7 @@ import numpy as np
 RATE = 16384
 HEAD = 8192  # campioni copiati in coda (0,5 s)
 
-def main(src, dst_bin, dst_h):
+def main(src, dst_bin, dst_h, dst_basso):
     raw = subprocess.run(["ffmpeg", "-v", "error", "-i", src, "-ac", "1", "-ar", str(RATE), "-f", "f32le", "-"],
                          check=True, capture_output=True).stdout
     d = np.frombuffer(raw, dtype="<f4").astype(np.float64)
@@ -20,6 +20,8 @@ def main(src, dst_bin, dst_h):
     b = np.round(d * 127).astype(np.int8)
     n = len(b)
     open(dst_bin, "wb").write(np.concatenate([b, b[:HEAD]]).tobytes())
+    q = np.round(d * 0.25 * 127).astype(np.int8)  # copia a 1/4 per i volumi bassi
+    open(dst_basso, "wb").write(np.concatenate([q, q[:HEAD]]).tobytes())
     open(dst_h, "w").write(
         "#ifndef MUSICA_H\n#define MUSICA_H\n\n"
         "/* GENERATO da tools/converti_musica.py - non modificare a mano.\n"
@@ -27,4 +29,4 @@ def main(src, dst_bin, dst_h):
         "#define MUS_LEN %d\n#define MUS_HEAD %d\n\n#endif\n" % (n, HEAD))
     print("musica: %d campioni (%.1f s), file %d byte" % (n, n / RATE, n + HEAD))
 
-main(*sys.argv[1:4])
+main(*sys.argv[1:5])

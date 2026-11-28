@@ -259,9 +259,15 @@ static int vedi_ciclo = 0;
 
 /* ---------- STATO ---------- */
 static int iniziata = 0;
-static int titolo_voce = 0; /* 0 = Nuova Partita, 1 = Difficolta', 2 = Codex (menu del titolo) */
+static int titolo_voce = 0; /* 0 Nuova Partita, 1 Difficolta', 2 Codex, 3 Guida, 4 Opzioni */
+#define N_VOCI_TITOLO 5
+#define N_VOCI_PAUSA 5
 static int codex = 0;       /* 1 = si sta sfogliando il Codex delle carte */
 static int codex_cursore = 0;
+static int opzioni = 0;  /* 1 = schermata Opzioni (dal titolo o dalla pausa) */
+static int opz_voce = 0; /* 0 = Musica, 1 = Effetti, 2 = Indietro */
+static int guida = 0;    /* 1 = schermata Guida (dal titolo o dalla pausa) */
+static int guida_pag = 0;
 static int vinto = 0;
 static int perso = 0;
 static int pausa = 0;
@@ -677,6 +683,7 @@ static int ciclo_sprite_y(void) {
 static void aggiorna_sprite(void) {
 	for (int s = 0; s < SLOT_SPRITE + MAX_DADI; s++) sprite_nascondi(s);
 
+	if (opzioni || guida) return;
 	if (!iniziata) {
 		if (codex) {
 			int idx = (codex_cursore < N_POOL) ? codex_cursore : -1;
@@ -1104,17 +1111,158 @@ static void disegna_codex(void) {
 }
 
 static void disegna_pausa(void) {
-	static const char *const V[3] = {"Riprendi", "Riavvia partita", "Torna al titolo"};
-	ui_pannello(50, 34, 140, 80);
-	ui_testo_c(120, 40, "PAUSA", K_GIALLO, 2);
-	ui_testo_c(120, 57, difficile ? "Modalita difficile" : "Modalita normale",
+	static const char *const V[N_VOCI_PAUSA] = {"Riprendi", "Opzioni", "Guida", "Riavvia partita", "Torna al titolo"};
+	ui_pannello(50, 20, 140, 104);
+	ui_testo_c(120, 26, "PAUSA", K_GIALLO, 2);
+	ui_testo_c(120, 43, difficile ? "Modalita difficile" : "Modalita normale",
 	           difficile ? K_ROSSO : K_GRIGIO, 1);
-	for (int k = 0; k < 3; k++) {
-		int ry = 68 + k * 12;
+	for (int k = 0; k < N_VOCI_PAUSA; k++) {
+		int ry = 54 + k * 12;
 		if (k == voce_pausa) ui_riga_sel(55, ry, 130);
 		ui_testo(70, ry + 2, V[k], k == voce_pausa ? K_GIALLO : K_TESTO, 1);
 	}
 	ui_aiuto("Su/Giu|voce;A|conferma;B|riprendi");
+}
+
+/* ---------- OPZIONI ---------- */
+static const char *const PERCENTO[VOL_MAX + 1] = {"OFF", "12%", "25%", "50%", "100%"};
+
+static void disegna_opzioni(void) {
+	static const char *const NOMI[2] = {"Musica", "Effetti sonori"};
+	ui_pannello(20, 14, 200, 120);
+	ui_testo_c(120, 20, "OPZIONI", K_GIALLO, 2);
+	for (int k = 0; k < 2; k++) {
+		int v = (k == 0) ? au_vol_mus : au_vol_eff;
+		int ry = 44 + k * 32;
+		int sel = (opz_voce == k);
+		if (sel) ui_cornice(26, ry - 3, 188, 29, K_ORO);
+		ui_testo(34, ry, NOMI[k], sel ? K_GIALLO : K_TESTO, 1);
+		ui_testo_d(206, ry, PERCENTO[v], v == 0 ? K_ROSSO : K_TESTO, 1);
+		for (int t = 0; t < VOL_MAX; t++) {
+			ui_rett(34 + t * 43, ry + 11, 39, 7, t < v ? K_VERDE : K_BARRA);
+		}
+	}
+	{
+		int ry = 110;
+		if (opz_voce == 2) ui_riga_sel(76, ry, 88);
+		ui_testo_c(120, ry + 2, "Indietro", opz_voce == 2 ? K_GIALLO : K_TESTO, 1);
+	}
+	ui_aiuto("Su/Giu|voce;Sx/Dx|volume;B|indietro");
+}
+
+/* ---------- GUIDA ---------- */
+typedef struct {
+	const char *titolo;
+	const char *r[10]; /* righe di testo (0 = fine) */
+} PaginaGuida;
+
+/* pagine 3 e 4 mostrano le caselle disegnate: il testo sta nella funzione */
+#define PAG_CASELLE 3
+#define PAG_SOMME 4
+#define N_PAG_GUIDA 8
+static const PaginaGuida GUIDA[N_PAG_GUIDA] = {
+	{"OBIETTIVO", {
+		"Davanti a te c'e' una fila di carte",
+		"nemiche. Sconfiggile tutte, fino al",
+		"Doom Core: l'ultima carta del mazzo.",
+		"",
+		"Hai 20 PV: se arrivano a 0 perdi.",
+		"A ogni turno tiri dei dadi e li usi per",
+		"colpire le carte o per difenderti.",
+		"Ogni carta sconfitta ti da' un dado",
+		"in piu' (fino a 10).", 0}},
+	{"IL TURNO", {
+		"1  Premi A per tirare i dadi.",
+		"2  Per ogni dado scegli: rilancia,",
+		"    ritocca +1/-1, difesa o attacca.",
+		"3  SELECT chiude il turno.",
+		"4  Ogni carta in campo esegue il",
+		"    passo del suo ciclo. Il danno totale",
+		"    meno la tua difesa ti toglie PV.",
+		"5  Arriva una nuova carta e si",
+		"    ricomincia.", 0}},
+	{"RILANCI, RITOCCHI, DIFESA", {
+		"Rilancia: tira di nuovo quel dado",
+		"(3 volte per turno).",
+		"Aumenta / Diminuisci: +1 o -1 al",
+		"dado (3 volte per turno). Un dado gia'",
+		"rilanciato o ritoccato resta com'e'.",
+		"Difesa: fino a 4 dadi; la loro somma",
+		"viene tolta al danno del turno.",
+		"Modalita difficile: solo 2 rilanci e",
+		"2 ritocchi per turno.", 0}},
+	{"CASELLE: I NUMERI", {0}},
+	{"CASELLE: LE SOMME", {0}},
+	{"COME SI ATTACCA", {
+		"Dal menu di un dado (A) scegli Attacca",
+		"e poi la carta; oppure dalla schermata",
+		"carte (R) apri il menu della carta e",
+		"scegli Attacca. Poi assegna i dadi:",
+		"ognuno va nella prima casella adatta.",
+		"Quando tutte le caselle sono piene la",
+		"carta perde 1 PV e quei dadi sono",
+		"spesi per il turno. B annulla.", 0}},
+	{"CICLO, POTERE, SENTENZA", {
+		"Ogni carta ha un ciclo: A, B, C...",
+		"A ogni turno nemico esegue il passo",
+		"successivo, poi ricomincia. Nel menu",
+		"della carta, Vedi ciclo li mostra.",
+		"Potere (P) e Sentenza (S) sono le due",
+		"barre ai lati: alcune carte le fanno",
+		"crescere e ne usano il valore come",
+		"danno. Alla morte alcune carte hanno",
+		"un effetto (vedi il Codex).", 0}},
+	{"DADI E COMANDI", {
+		"Sotto ai dadi: R = rilanciato,",
+		"+ = ritoccato, D = in difesa,",
+		"* = assegnato a un attacco,",
+		"X = gia' usato in questo turno.",
+		"",
+		"A tira / menu     B indietro",
+		"R carte     L dadi     SELECT fine turno",
+		"START pausa", 0}},
+};
+
+static void guida_casella(int y, Casella c, const char *testo) {
+	ui_casella(16, y, c, 0);
+	ui_testo_wrap(48, y + 2, 176, testo, K_TESTO, 1, 0);
+}
+
+static void disegna_guida(void) {
+	char b[8];
+	const PaginaGuida *g = &GUIDA[guida_pag];
+	ui_pannello(4, 6, 232, 136);
+	ui_testo_c(120, 12, g->titolo, K_GIALLO, 1);
+	sprintf(b, "%d/%d", guida_pag + 1, N_PAG_GUIDA);
+	ui_testo_d(228, 12, b, K_GRIGIO, 1);
+	if (guida_pag == PAG_CASELLE) {
+		static const Casella C4 = {'=', 4, 0}, C45 = {'o', 4, 5}, CM = {'<', 3, 0},
+		                     CP = {'>', 3, 0}, CU = {'~', 0, 0};
+		guida_casella(28, C4, "Un dado che vale esattamente 4");
+		guida_casella(44, C45, "Un dado che vale 4 oppure 5");
+		guida_casella(60, CM, "Un dado minore di 3");
+		guida_casella(76, CP, "Un dado maggiore di 3");
+		guida_casella(92, CU, "Due dadi uguali tra loro (valore libero)");
+		ui_testo_wrap(120, 120, 212, "Ogni carta mostra le caselle che servono.", K_GRIGIO, 1, 1);
+	} else if (guida_pag == PAG_SOMME) {
+		static const Casella A = {'+', 0, 0}, B = {'+', 1, 0}, S = {'+', 2, 0};
+		ui_casella(16, 28, A, 0);
+		ui_casella(44, 28, B, 0);
+		ui_casella(72, 28, S, 0);
+		const char *const R[] = {
+			"a e b sono due dadi qualsiasi; il",
+			"terzo dado deve valere a+b.",
+			"Esempio: 2 e 3, poi un 5.",
+			"a e b valgono al massimo 5 e la loro",
+			"somma al massimo 6.",
+			"I dadi si assegnano da soli alla prima",
+			"casella adatta, quindi conviene",
+			"metterli nell'ordine giusto.", 0};
+		for (int k = 0; R[k]; k++) ui_testo(14, 46 + k * 10, R[k], K_TESTO, 1);
+	} else {
+		for (int k = 0; g->r[k]; k++) ui_testo(14, 26 + k * 10, g->r[k], K_TESTO, 1);
+	}
+	ui_aiuto("Sx/Dx|pagina;B|indietro");
 }
 
 static void disegna_conferma(void) {
@@ -1139,16 +1287,20 @@ static void disegna_conferma(void) {
 static void disegna_pannelli(void) {
 	ui_pulisci();
 
-	if (!iniziata) {
+	if (opzioni) {
+		disegna_opzioni();
+	} else if (guida) {
+		disegna_guida();
+	} else if (!iniziata) {
 		if (codex) {
 			disegna_codex();
 		} else {
 			char voce_diff[32];
 			sprintf(voce_diff, "Difficolta: < %s >", difficile ? "Difficile" : "Normale");
-			const char *const VOCE_TITOLO[3] = {"Nuova Partita", voce_diff, "Codex"};
+			const char *const VOCE_TITOLO[N_VOCI_TITOLO] = {"Nuova Partita", voce_diff, "Codex", "Guida", "Opzioni"};
 
-			const int dy = 20; /* riquadro centrato in verticale */
-			ui_pannello(14, 14 + dy, 212, 92);
+			const int dy = 12; /* riquadro centrato in verticale */
+			ui_pannello(14, 14 + dy, 212, 114);
 
 			/* titolo in rilievo su due righe (ombra + luce + colore pieno) */
 			ui_testo_c(122, 26 + dy, "DOOM", K_OMBRA, 3);
@@ -1159,7 +1311,7 @@ static void disegna_pannelli(void) {
 			ui_testo_c(119, 51 + dy, "MACHINE", K_LUCE, 2);
 			ui_testo_c(120, 52 + dy, "MACHINE", K_ROSSO, 2);
 
-			for (int k = 0; k < 3; k++) {
+			for (int k = 0; k < N_VOCI_TITOLO; k++) {
 				int ry = 68 + dy + k * 11;
 				/* la barra luminosa e' larga quanto la scritta (piu' un
 				   margine), cosi' la ingloba sempre per intero */
@@ -1194,8 +1346,10 @@ static void disegna_pannelli(void) {
 _Static_assert(SLOT_SPRITE + MAX_DADI <= TR_SPRITE, "TR_SPRITE troppo piccolo");
 
 /* schermata corrente (0 titolo, 1 codex, 2 dadi, 3 carte, 4 ciclo, 6 fine
-   partita, 9 riquadri sovrapposti come pausa e conferma) */
+   partita, 7 opzioni, 8 guida, 9 riquadri sovrapposti come pausa e conferma) */
 static int schermata_id(void) {
+	if (opzioni) return 7;
+	if (guida) return 8;
 	if (!iniziata) return codex ? 1 : 0;
 	if (vinto || perso) return 6;
 	if (pausa || conferma) return 9;
@@ -1208,7 +1362,7 @@ static int schermata_precedente = -1;
 /* +1 = la nuova schermata entra da destra, -1 da sinistra, 0 = niente
    scorrimento (primo disegno, stessa schermata, riquadri sovrapposti) */
 static int direzione_scorrimento(int da, int a) {
-	static const int profondita[] = {0, 1, 1, 2, 3, 0, 4};
+	static const int profondita[] = {0, 1, 1, 2, 3, 0, 4, 1, 1};
 	if (da < 0 || da == a || da == 9 || a == 9) return 0;
 	if (da == 6) return 1; /* da fine partita si va sempre avanti (nuova partita) */
 	return profondita[a] >= profondita[da] ? 1 : -1;
@@ -1293,6 +1447,61 @@ int main(void) {
 		u16 premuti = keysDown();
 		int cambiato = 0;
 
+		if (opzioni) {
+			if (premuti & KEY_UP) {
+				opz_voce = (opz_voce + 2) % 3;
+				CAMPIONE(CAMP_SPOSTA);
+				cambiato = 1;
+			}
+			if (premuti & KEY_DOWN) {
+				opz_voce = (opz_voce + 1) % 3;
+				CAMPIONE(CAMP_SPOSTA);
+				cambiato = 1;
+			}
+			int delta = ((premuti & KEY_RIGHT) ? 1 : 0) - ((premuti & KEY_LEFT) ? 1 : 0);
+			if ((premuti & KEY_A) && opz_voce < 2) delta = 1; /* A fa girare i livelli */
+			if (delta && opz_voce == 0) {
+				int v = au_vol_mus + delta;
+				if (v > VOL_MAX) v = (premuti & KEY_A) ? 0 : VOL_MAX;
+				if (v < 0) v = 0;
+				au_set_musica(v);
+				cambiato = 1;
+			} else if (delta && opz_voce == 1) {
+				int v = au_vol_eff + delta;
+				if (v > VOL_MAX) v = (premuti & KEY_A) ? 0 : VOL_MAX;
+				if (v < 0) v = 0;
+				au_set_effetti(v);
+				CAMPIONE(CAMP_SELEZIONE); /* anteprima al nuovo volume */
+				cambiato = 1;
+			}
+			if ((premuti & KEY_B) || ((premuti & KEY_A) && opz_voce == 2)) {
+				opzioni = 0;
+				CAMPIONE(CAMP_DESELEZIONE);
+				cambiato = 1;
+			}
+			if (cambiato) disegna();
+			continue;
+		}
+		if (guida) {
+			if (premuti & (KEY_RIGHT | KEY_DOWN | KEY_R)) {
+				guida_pag = (guida_pag + 1) % N_PAG_GUIDA;
+				CAMPIONE(CAMP_SPOSTA);
+				cambiato = 1;
+			}
+			if (premuti & (KEY_LEFT | KEY_UP | KEY_L)) {
+				guida_pag = (guida_pag + N_PAG_GUIDA - 1) % N_PAG_GUIDA;
+				CAMPIONE(CAMP_SPOSTA);
+				cambiato = 1;
+			}
+			if (premuti & (KEY_B | KEY_SELECT)) {
+				guida = 0;
+				CAMPIONE(CAMP_DESELEZIONE);
+				cambiato = 1;
+			}
+			if (cambiato) disegna();
+			continue;
+		}
+
 		if (!iniziata) {
 			if (codex) {
 				if (premuti & (KEY_LEFT | KEY_UP)) {
@@ -1312,12 +1521,12 @@ int main(void) {
 				}
 			} else {
 				if (premuti & KEY_UP) {
-					titolo_voce = (titolo_voce + 2) % 3;
+					titolo_voce = (titolo_voce + N_VOCI_TITOLO - 1) % N_VOCI_TITOLO;
 					CAMPIONE(CAMP_SPOSTA);
 					cambiato = 1;
 				}
 				if (premuti & KEY_DOWN) {
-					titolo_voce = (titolo_voce + 1) % 3;
+					titolo_voce = (titolo_voce + 1) % N_VOCI_TITOLO;
 					CAMPIONE(CAMP_SPOSTA);
 					cambiato = 1;
 				}
@@ -1334,9 +1543,17 @@ int main(void) {
 					} else if (titolo_voce == 1) {
 						difficile = !difficile;
 						CAMPIONE(CAMP_SPOSTA);
-					} else {
+					} else if (titolo_voce == 2) {
 						codex = 1;
 						codex_cursore = 0;
+						CAMPIONE(CAMP_SELEZIONE);
+					} else if (titolo_voce == 3) {
+						guida = 1;
+						guida_pag = 0;
+						CAMPIONE(CAMP_SELEZIONE);
+					} else {
+						opzioni = 1;
+						opz_voce = 0;
 						CAMPIONE(CAMP_SELEZIONE);
 					}
 					cambiato = 1;
@@ -1358,12 +1575,12 @@ int main(void) {
 
 		if (pausa) {
 			if (premuti & KEY_UP) {
-				voce_pausa = (voce_pausa + 2) % 3;
+				voce_pausa = (voce_pausa + N_VOCI_PAUSA - 1) % N_VOCI_PAUSA;
 				CAMPIONE(CAMP_SPOSTA);
 				cambiato = 1;
 			}
 			if (premuti & KEY_DOWN) {
-				voce_pausa = (voce_pausa + 1) % 3;
+				voce_pausa = (voce_pausa + 1) % N_VOCI_PAUSA;
 				CAMPIONE(CAMP_SPOSTA);
 				cambiato = 1;
 			}
@@ -1376,6 +1593,14 @@ int main(void) {
 					pausa = 0;
 					SUONA(S_RIPRENDI);
 				} else if (voce_pausa == 1) {
+					opzioni = 1;
+					opz_voce = 0;
+					CAMPIONE(CAMP_SELEZIONE);
+				} else if (voce_pausa == 2) {
+					guida = 1;
+					guida_pag = 0;
+					CAMPIONE(CAMP_SELEZIONE);
+				} else if (voce_pausa == 3) {
 					nuova_partita();
 					SUONA(S_AVVIO);
 				} else {
