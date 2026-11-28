@@ -654,6 +654,26 @@ static void fine_turno(void) {
 }
 
 /* ---------- DISEGNO ---------- */
+
+/* Gli sprite delle carte hanno contorni scuri e trasparenza: sopra i pannelli
+   blu notte si perdevano. Dietro a ogni carta si disegna quindi un fondo
+   grigio-azzurro piu' chiaro, su cui contorni e colori risaltano. */
+static void fondo_carta(int x, int y, int cornice) {
+	ui_rett(x - 2, y - 2, 36, 36, K_GRIGIO);
+	ui_cornice(x - 2, y - 2, 36, 36, cornice);
+}
+
+/* posizione verticale dello sprite nella vista "ciclo" */
+static int ciclo_sprite_y(void) {
+	int h = 24 + prendi(campo[cursore])->n_az * 10;
+	int py = (160 - h) / 2;
+	if (py < 8) py = 8;
+	int sy = py + h / 2 - 16;
+	if (sy < 2) sy = 2;
+	if (sy > 128) sy = 128;
+	return sy;
+}
+
 static void aggiorna_sprite(void) {
 	for (int s = 0; s < SLOT_SPRITE + MAX_DADI; s++) sprite_nascondi(s);
 
@@ -671,15 +691,7 @@ static void aggiorna_sprite(void) {
 		if (vedi_ciclo) {
 			/* nella vista "ciclo" mostra solo lo sprite della carta in esame,
 			   spostato di lato rispetto al pannello */
-			const Carta *c = prendi(campo[cursore]);
-			int n = c->n_az;
-			int h = 24 + n * 10;
-			int py = (160 - h) / 2;
-			if (py < 8) py = 8;
-			int sy = py + h / 2 - 16;
-			if (sy < 2) sy = 2;
-			if (sy > 128) sy = 128;
-			sprite_set(0, 198, sy, tile_carta(campo[cursore]));
+			sprite_set(0, 198, ciclo_sprite_y(), tile_carta(campo[cursore]));
 		} else {
 			for (int i = 0; i < n_campo && i < SLOT_SPRITE; i++) {
 				int y = (i == cursore) ? CARTA_Y(i) - 3 : CARTA_Y(i);
@@ -868,6 +880,7 @@ static void disegna_dadi(void) {
 	if (attacco) {
 		const Carta *c = prendi(campo[bersaglio]);
 		ui_pannello(20, 30, 200, 56);
+		fondo_carta(28, 40, K_BORDO);
 		ui_testo(70, 36, c->nome, K_GIALLO, 1);
 		ui_barra(70, 47, 90, 5, pv_campo[bersaglio], c->pv, K_ROSSO);
 		sprintf(b, "PV %d/%d", pv_campo[bersaglio], c->pv);
@@ -971,6 +984,7 @@ static void disegna_vedi_ciclo(void) {
 	char b[16];
 
 	ui_pannello(x, y, w, h);
+	fondo_carta(198, ciclo_sprite_y(), K_BORDO);
 	ui_testo(x + 8, y + 5, c->nome, K_GIALLO, 1);
 	sprintf(b, "PV %d/%d", pv_campo[cursore], c->pv);
 	ui_testo_d(x + w - 8, y + 5, b, K_TESTO, 1);
@@ -996,10 +1010,9 @@ static void disegna_carte(void) {
 		int x = CARTA_X(i);
 		int y = CARTA_Y(i);
 
-		/* pannello di sfondo dietro ogni icona, cosi' non si confonde
-		   con lo sfondo a tubi/circuiti del tavolo */
-		ui_rett(x - 2, y - 3, 36, 36, K_PANNELLO);
-		ui_cornice(x - 2, y - 3, 36, 36, i == cursore ? K_ORO : K_BARRA);
+		/* fondo chiaro dietro ogni icona (vedi fondo_carta); la carta
+		   selezionata e' alzata di 3 px, quindi il fondo parte da y - 1 */
+		fondo_carta(x, y - 1, i == cursore ? K_ORO : K_BARRA);
 
 		ui_barra(x, y + 34, 32, 4, pv_campo[i], c->pv, K_ROSSO);
 	}
@@ -1083,6 +1096,7 @@ static void disegna_codex(void) {
 	}
 
 	ui_pannello(178, 10, 58, 100);
+	fondo_carta(191, 44, K_BORDO);
 	sprintf(b, "%d/%d", codex_cursore + 1, N_MAZZO);
 	ui_testo_c(207, 15, b, K_GRIGIO, 1);
 
